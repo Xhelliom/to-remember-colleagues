@@ -2,7 +2,9 @@
 
 export type TimeKey = "dawn" | "day" | "dusk" | "night";
 export type SeasonKey = "spring" | "summer" | "autumn" | "winter" | "halloween";
-export type ParticleKind = "none" | "snow" | "leaves" | "pollen" | "embers";
+export type ParticleKind = "none" | "snow" | "leaves" | "pollen" | "embers" | "rain";
+/** Météo dynamique (issue #8) : modifie le brouillard et les particules par-dessus l'ambiance de base. */
+export type WeatherKey = "clear" | "brumeux" | "orageux";
 
 export type TimeSetting = TimeKey | "auto";
 export type SeasonSetting = SeasonKey | "auto";
@@ -193,6 +195,30 @@ export function applyKarmaTheme(a: Ambiance, karma: number): Ambiance {
     r.groundColor = mix(a.groundColor, 0x2a1510, enfer * 0.5);
     r.graveColor = mix(a.graveColor, 0x2a1818, enfer * 0.4);
     if (enfer > 0.5) r.particles = "embers";
+  }
+  return r;
+}
+
+/**
+ * Applique une couche météo sur une ambiance de base (issue #8).
+ * Ne modifie ni le temps de la journée ni la saison.
+ */
+export function applyWeather(a: Ambiance, weather: WeatherKey): Ambiance {
+  if (weather === "clear") return a;
+  const r = { ...a };
+  if (weather === "brumeux") {
+    r.fogDensity = a.fogDensity * 2.8;
+    r.fogColor = mix(a.fogColor, 0x8a9aaa, 0.35);
+    r.hemiIntensity = a.hemiIntensity * 0.8;
+    // Pluie fine seulement si aucune particule de saison déjà active.
+    if (a.particles === "none") r.particles = "rain";
+  } else {
+    // Orageux : brume épaisse, lumière étouffée, pluie battante.
+    r.fogDensity = a.fogDensity * 5;
+    r.fogColor = mix(a.fogColor, 0x4a5060, 0.55);
+    r.hemiIntensity = a.hemiIntensity * 0.5;
+    r.keyLightIntensity = a.keyLightIntensity * 0.35;
+    r.particles = "rain";
   }
   return r;
 }

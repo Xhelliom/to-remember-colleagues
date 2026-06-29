@@ -18,6 +18,7 @@ const PARTICLE_COLORS: Record<Exclude<ParticleKind, "none">, number> = {
   leaves: 0xc06a2a,
   pollen: 0xeae28a,
   embers: 0xff8a3c,
+  rain: 0x9ab8d0,
 };
 
 type ParticleState = { kind: ParticleKind; velocities: Float32Array; bounds: number };

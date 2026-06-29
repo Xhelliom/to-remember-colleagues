@@ -226,20 +226,23 @@ function setupGraveActions(cemetery: Cemetery, handlers: { onColleagueAdded: () 
     });
   });
 
+  async function doMaintain(colleague: Colleague) {
+    try {
+      const { maintenance } = await maintainColleague(colleague.id);
+      const updated = { ...colleague, maintenance };
+      if (focusedColleague?.id === colleague.id) focusedColleague = updated;
+      cemetery.updateColleague(updated);
+    } catch (err) {
+      console.error("Erreur entretien:", err);
+    }
+  }
+
   maintainBtn.addEventListener("click", () => {
     if (!focusedColleague) return;
-    const colleague = focusedColleague;
-    void (async () => {
-      try {
-        const { maintenance } = await maintainColleague(colleague.id);
-        const updated = { ...colleague, maintenance };
-        focusedColleague = updated;
-        cemetery.updateColleague(updated);
-      } catch (err) {
-        console.error("Erreur entretien:", err);
-      }
-    })();
+    void doMaintain(focusedColleague);
   });
+
+  cemetery.onMaintainRequest((colleague) => { void doMaintain(colleague); });
 
   shareBtn.addEventListener("click", () => {
     if (!focusedColleague) return;

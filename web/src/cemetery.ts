@@ -6,7 +6,7 @@ import { cemeteryLayout } from "./procedural.ts";
 import { buildHub, type Portal } from "./hub.ts";
 import { Presence, type PeerState } from "./net.ts";
 import { makeAvatar, showEmote, tickEmote, type Avatar } from "./avatars.ts";
-import { applyKarmaTheme, getAmbiance, resolveSeasonKey, resolveTimeKey, type Ambiance, type SeasonSetting, type TimeSetting } from "./ambiance.ts";
+import { applyKarmaTheme, applyWeather, getAmbiance, resolveSeasonKey, resolveTimeKey, type Ambiance, type SeasonSetting, type TimeSetting, type WeatherKey } from "./ambiance.ts";
 import { createSky, type Sky } from "./scene/sky.ts";
 import { Lighting } from "./scene/lighting.ts";
 import { Decor } from "./scene/decor.ts";
@@ -56,6 +56,12 @@ export class Cemetery {
   private karma = 0;
   private plotHalf = MIN_PLOT_HALF;
   private running = false;
+
+  // Météo dynamique (#8) : changement automatique toutes les 5–15 min.
+  private weather: WeatherKey = "clear";
+  private weatherChangeAt = 0;
+  private ambianceRefreshAt = 0;
+  private maintainCb: (c: Colleague) => void = () => {};
 
   private focusCb: (c: Colleague | null) => void = () => {};
   private focused: Colleague | null = null;
@@ -119,6 +125,11 @@ export class Cemetery {
 
   onVisitorCount(cb: (n: number) => void) {
     this.countCb = cb;
+  }
+
+  /** Appelé quand l'utilisateur appuie sur R près d'une tombe (issue #8). */
+  onMaintainRequest(cb: (c: Colleague) => void) {
+    this.maintainCb = cb;
   }
 
   setVisitorName(name: string) {
@@ -188,6 +199,15 @@ export class Cemetery {
     this.layoutGraves();
   }
 
+  setColleagueMaintenance(colleagueId: string, maintenance: number) {
+    if (!this.detail) return;
+    const idx = this.detail.colleagues.findIndex((c) => c.id === colleagueId);
+    if (idx >= 0) {
+      this.detail.colleagues[idx] = { ...this.detail.colleagues[idx], maintenance };
+      this.layoutGraves();
+    }
+  }
+
   /** Place la caméra à proximité d'une tombe donnée (issue #18 : lien de partage). */
   highlightGrave(id: string) {
     if (!this.detail) return;
@@ -241,14 +261,15 @@ export class Cemetery {
   }
 
   private applyAmbiance(a: Ambiance) {
-    this.sky.setColors(a.skyTop, a.skyBottom);
+    const effective = applyWeather(a, this.weather);
+    this.sky.setColors(effective.skyTop, effective.skyBottom);
     const fog = this.scene.fog as THREE.FogExp2;
-    fog.color.setHex(a.fogColor);
-    fog.density = a.fogDensity;
-    this.lighting.apply(a);
-    this.groundMat.color.setHex(a.groundColor);
+    fog.color.setHex(effective.fogColor);
+    fog.density = effective.fogDensity;
+    this.lighting.apply(effective);
+    this.groundMat.color.setHex(effective.groundColor);
     // Enceinte/arbres seulement en cimetière ; le hub ne garde que les particules.
-    this.decor.build(a, this.plotHalf, { structures: this.mode === "cemetery" });
+    this.decor.build(effective, this.plotHalf, { structures: this.mode === "cemetery" });
   }
 
   private layoutGraves() {
@@ -271,7 +292,7 @@ export class Cemetery {
       this.gravesGroup.add(grave);
     });
 
-    this.decor.build(this.ambiance, this.plotHalf);
+    this.decor.build(applyWeather(this.ambiance, this.weather), this.plotHalf);
   }
 
   // ---- Présence multijoueur (#4) ----
@@ -323,6 +344,26 @@ export class Cemetery {
     disposeGroup(this.hubGroup);
     this.portals = [];
     this.setPortal(null);
+  }
+
+  // ---- Météo & ambiance auto (#8) ----
+
+  private maybeRefreshAmbiance() {
+    const now = performance.now();
+    if (now >= this.weatherChangeAt) {
+      const options: WeatherKey[] = ["clear", "clear", "clear", "brumeux", "orageux"];
+      this.weather = options[Math.floor(Math.random() * options.length)];
+      this.weatherChangeAt = now + (5 + Math.random() * 10) * 60_000;
+      this.applyAmbiance(this.ambiance);
+    }
+    if (now >= this.ambianceRefreshAt) {
+      const next = this.resolveAmbiance();
+      const graveColorChanged = next.graveColor !== this.ambiance.graveColor;
+      this.ambiance = next;
+      this.applyAmbiance(next);
+      if (graveColorChanged && this.mode === "cemetery") this.layoutGraves();
+      this.ambianceRefreshAt = now + 60_000;
+    }
   }
 
   // ---- Boucle ----
@@ -403,6 +444,7 @@ export class Cemetery {
     }
     this.updatePeers(dt);
     this.decor.update(dt, this.clock.elapsedTime);
+    this.maybeRefreshAmbiance();
     this.renderer.render(this.scene, this.camera);
   };
 
@@ -418,6 +460,8 @@ export class Cemetery {
       this.enterPortalCb(this.nearPortal.company); // entrer dans un cimetière (#5)
     } else if (e.code === "KeyF") {
       this.emote("wave"); // emote « saluer » synchronisée (#4)
+    } else if (e.code === "KeyR" && this.mode === "cemetery" && this.focused) {
+      this.maintainCb(this.focused); // entretien de la tombe ciblée (raccourci #8)
     }
   };
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyKarmaTheme, getAmbiance, mix, resolveSeasonKey, resolveTimeKey } from "./ambiance.ts";
+import { applyKarmaTheme, applyWeather, getAmbiance, mix, resolveSeasonKey, resolveTimeKey } from "./ambiance.ts";
 
 describe("resolveTimeKey", () => {
   it("respecte le réglage manuel sans regarder l'heure", () => {
@@ -96,6 +96,40 @@ describe("applyKarmaTheme (issue #3)", () => {
     const halloween = getAmbiance("night", "halloween");
     expect(applyKarmaTheme(halloween, 50)).toBe(halloween);
     expect(applyKarmaTheme(halloween, -50)).toBe(halloween);
+  });
+});
+
+describe("applyWeather (issue #8)", () => {
+  it("ne modifie pas l'ambiance en temps clair", () => {
+    const base = getAmbiance("day", "summer");
+    expect(applyWeather(base, "clear")).toBe(base);
+  });
+
+  it("augmente la densité de brouillard en temps brumeux", () => {
+    const base = getAmbiance("day", "summer");
+    expect(applyWeather(base, "brumeux").fogDensity).toBeGreaterThan(base.fogDensity);
+  });
+
+  it("ajoute des particules de pluie en temps orageux", () => {
+    expect(applyWeather(getAmbiance("day", "summer"), "orageux").particles).toBe("rain");
+  });
+
+  it("réduit davantage la lumière par temps orageux que brumeux", () => {
+    const base = getAmbiance("day", "summer");
+    const misty = applyWeather(base, "brumeux");
+    const storm = applyWeather(base, "orageux");
+    expect(storm.fogDensity).toBeGreaterThan(misty.fogDensity);
+    expect(storm.hemiIntensity).toBeLessThan(misty.hemiIntensity);
+  });
+
+  it("ne remplace pas les particules de saison par pluie fine en brumeux", () => {
+    const base = getAmbiance("night", "winter"); // snow
+    expect(applyWeather(base, "brumeux").particles).toBe("snow");
+  });
+
+  it("écrase les particules de saison par la pluie en orageux", () => {
+    const base = getAmbiance("day", "winter"); // snow
+    expect(applyWeather(base, "orageux").particles).toBe("rain");
   });
 });
 
