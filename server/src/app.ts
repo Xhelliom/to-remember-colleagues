@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
+import fastifyStatic from "@fastify/static";
 import { auth } from "./auth.ts";
 import { companyRoutes } from "./routes/companies.ts";
 import { colleagueRoutes } from "./routes/colleagues.ts";
@@ -66,6 +67,16 @@ export async function buildApp(options: { logger?: boolean } = {}): Promise<Fast
   await app.register(realtimeRoutes);
 
   app.get("/api/health", async () => ({ status: "ok" }));
+
+  // En production, sert les assets du client Vite compilé.
+  if (process.env.STATIC_DIR) {
+    await app.register(fastifyStatic, {
+      root: process.env.STATIC_DIR,
+      prefix: "/",
+      // Renvoie index.html pour toutes les routes non-API (SPA routing).
+      index: "index.html",
+    });
+  }
 
   return app;
 }

@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@fastify/cors": "^11.0.0",
+    "@fastify/static": "^8.0.0",
     "better-auth": "^1.6.22",
     "drizzle-orm": "^0.45.2",
     "fastify": "^5.9.0",
