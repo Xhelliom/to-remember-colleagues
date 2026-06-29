@@ -24,6 +24,8 @@ const GROUND_SEGMENTS = 64;
 const MIN_PLOT_HALF = 16;
 const ENTRANCE_OFFSET = 3;
 const PEER_SMOOTH_RATE = 10; // lissage exponentiel de l'interpolation des pairs
+// Distribution pondérée de la météo : beau temps 3× plus fréquent.
+const WEATHER_OPTIONS: WeatherKey[] = ["clear", "clear", "clear", "brumeux", "orageux"];
 
 type Mode = "cemetery" | "hub";
 
@@ -199,15 +201,6 @@ export class Cemetery {
     this.layoutGraves();
   }
 
-  setColleagueMaintenance(colleagueId: string, maintenance: number) {
-    if (!this.detail) return;
-    const idx = this.detail.colleagues.findIndex((c) => c.id === colleagueId);
-    if (idx >= 0) {
-      this.detail.colleagues[idx] = { ...this.detail.colleagues[idx], maintenance };
-      this.layoutGraves();
-    }
-  }
-
   /** Place la caméra à proximité d'une tombe donnée (issue #18 : lien de partage). */
   highlightGrave(id: string) {
     if (!this.detail) return;
@@ -351,8 +344,7 @@ export class Cemetery {
   private maybeRefreshAmbiance() {
     const now = performance.now();
     if (now >= this.weatherChangeAt) {
-      const options: WeatherKey[] = ["clear", "clear", "clear", "brumeux", "orageux"];
-      this.weather = options[Math.floor(Math.random() * options.length)];
+      this.weather = WEATHER_OPTIONS[Math.floor(Math.random() * WEATHER_OPTIONS.length)];
       this.weatherChangeAt = now + (5 + Math.random() * 10) * 60_000;
       this.applyAmbiance(this.ambiance);
     }

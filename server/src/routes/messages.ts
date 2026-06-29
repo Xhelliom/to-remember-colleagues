@@ -1,9 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import { asc, eq } from "drizzle-orm";
 import { db } from "../db/client.ts";
-import { graveMessages, colleagues } from "../db/schema.ts";
+import { graveMessages } from "../db/schema.ts";
 import { requireUser } from "../session.ts";
 import { ID_PARAM_SCHEMA } from "../lib/schemas.ts";
+import { findColleague } from "../lib/queries.ts";
 
 const MAX_CONTENT = 500;
 
@@ -15,8 +16,7 @@ export async function messageRoutes(app: FastifyInstance) {
     async (request, reply) => {
       const { id } = request.params as { id: string };
 
-      const [colleague] = await db.select({ id: colleagues.id }).from(colleagues).where(eq(colleagues.id, id)).limit(1);
-      if (!colleague) return reply.code(404).send({ error: "Tombe introuvable." });
+      if (!await findColleague(id)) return reply.code(404).send({ error: "Tombe introuvable." });
 
       return db
         .select({
@@ -53,8 +53,7 @@ export async function messageRoutes(app: FastifyInstance) {
       const { id } = request.params as { id: string };
       const { content } = request.body as { content: string };
 
-      const [colleague] = await db.select({ id: colleagues.id }).from(colleagues).where(eq(colleagues.id, id)).limit(1);
-      if (!colleague) return reply.code(404).send({ error: "Tombe introuvable." });
+      if (!await findColleague(id)) return reply.code(404).send({ error: "Tombe introuvable." });
 
       const [created] = await db
         .insert(graveMessages)

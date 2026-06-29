@@ -1,24 +1,45 @@
-import type { FastifyInstance, FastifyRequest } from "fastify";
+import type { FastifyInstance } from "fastify";
 import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import { colleagues, companies, companyMembers } from "../db/schema.ts";
 import { getSessionUser, requireUser } from "../session.ts";
 import { newGraveSeed } from "../lib/random.ts";
 import { ID_PARAM_SCHEMA } from "../lib/schemas.ts";
-import { activeOfferingCounts } from "../lib/offerings.ts";
+import { activeOfferingCounts, type OfferingCounts } from "../lib/offerings.ts";
 import { effectiveMaintenance } from "../lib/maintenance.ts";
 import { deterministicAnagram } from "../lib/anagram.ts";
 
-/** Vérifie si l'utilisateur de la requête est membre d'un cimetière donné. */
-async function isCemeteryMember(companyId: string, request: FastifyRequest): Promise<boolean> {
-  const sessionUser = await getSessionUser(request);
-  if (!sessionUser) return false;
+/** Vérifie si un utilisateur est membre d'un cimetière donné. */
+async function isCemeteryMember(companyId: string, userId: string | null): Promise<boolean> {
+  if (!userId) return false;
   const rows = await db
     .select({ id: companyMembers.id })
     .from(companyMembers)
-    .where(and(eq(companyMembers.companyId, companyId), eq(companyMembers.userId, sessionUser.id)))
+    .where(and(eq(companyMembers.companyId, companyId), eq(companyMembers.userId, userId)))
     .limit(1);
   return rows.length > 0;
+}
+
+type ColleagueRow = {
+  id: string; name: string; quote: string; departedOn: string | null;
+  graveSeed: number; voteScore: number; maintenance: number;
+  maintainedAt: Date | null; createdAt: Date;
+};
+
+/** Sérialise une ligne de tombe avec anonymisation, maintenance effective et offrandes. */
+function serializeColleague(r: ColleagueRow, isMember: boolean, now: Date, offeringCounts: OfferingCounts) {
+  return {
+    id: r.id,
+    name: isMember ? r.name : deterministicAnagram(r.name),
+    quote: r.quote,
+    departedOn: r.departedOn,
+    graveSeed: r.graveSeed,
+    voteScore: r.voteScore,
+    maintenance: effectiveMaintenance(r.maintenance, r.maintainedAt ?? r.createdAt, now),
+    createdAt: r.createdAt,
+    offeringCounts,
+    construction: r.departedOn !== null && new Date(r.departedOn) > now,
+  };
 }
 
 export async function colleagueRoutes(app: FastifyInstance) {
@@ -37,9 +58,7 @@ export async function colleagueRoutes(app: FastifyInstance) {
       .from(companies)
       .where(eq(companies.id, id))
       .limit(1);
-    if (!company) {
-      return reply.code(404).send({ error: "Cimetière introuvable." });
-    }
+    if (!company) return reply.code(404).send({ error: "Cimetière introuvable." });
 
     const rows = await db
       .select({
@@ -57,34 +76,19 @@ export async function colleagueRoutes(app: FastifyInstance) {
       .where(eq(colleagues.companyId, id))
       .orderBy(asc(colleagues.createdAt));
 
-    // Karma = somme des voteScores (issue #3) pour l'affichage de la jauge dans le HUD.
+    // Karma = somme des voteScores (issue #3).
     const karma = rows.reduce((sum, c) => sum + c.voteScore, 0);
 
-    // Offrandes actives + entretien effectif (issues #7 et #14).
     const now = new Date();
-    const counts = await activeOfferingCounts(rows.map((r) => r.id), now);
+    const sessionUser = await getSessionUser(request);
+    const [counts, isMember] = await Promise.all([
+      activeOfferingCounts(rows.map((r) => r.id), now),
+      isCemeteryMember(id, sessionUser?.id ?? null),
+    ]);
 
-    // Vérifier si l'utilisateur courant est membre (issue #22).
-    const isMember = await isCemeteryMember(id, request);
-
-    const enriched = rows.map((r) => {
-      const construction = r.departedOn !== null && new Date(r.departedOn) > now;
-      return {
-        id: r.id,
-        // Noms anonymisés pour les non-membres (issue #22).
-        name: isMember ? r.name : deterministicAnagram(r.name),
-        quote: r.quote,
-        departedOn: r.departedOn,
-        graveSeed: r.graveSeed,
-        voteScore: r.voteScore,
-        // Maintenance effective = base décroissante depuis la dernière action (issue #14).
-        maintenance: effectiveMaintenance(r.maintenance, r.maintainedAt ?? r.createdAt, now),
-        createdAt: r.createdAt,
-        offeringCounts: counts.get(r.id) ?? { flower: 0, candle: 0, stone: 0 },
-        // Départ annoncé mais pas encore survenu (issue #21).
-        construction,
-      };
-    });
+    const enriched = rows.map((r) =>
+      serializeColleague(r, isMember, now, counts.get(r.id) ?? { flower: 0, candle: 0, stone: 0 }),
+    );
 
     return { company, colleagues: enriched, karma, anonymized: !isMember };
   });
@@ -122,25 +126,15 @@ export async function colleagueRoutes(app: FastifyInstance) {
         .from(companies)
         .where(eq(companies.id, id))
         .limit(1);
-      if (!company) {
-        return reply.code(404).send({ error: "Cimetière introuvable." });
-      }
+      if (!company) return reply.code(404).send({ error: "Cimetière introuvable." });
       if (company.closedAt) {
         return reply.code(403).send({ error: "Ce cimetière est fermé — aucune nouvelle tombe possible." });
       }
 
       const graveSeed = newGraveSeed();
-
       const [created] = await db
         .insert(colleagues)
-        .values({
-          companyId: id,
-          name,
-          quote,
-          departedOn: departedOn ?? null,
-          graveSeed,
-          addedBy: user.id,
-        })
+        .values({ companyId: id, name, quote, departedOn: departedOn ?? null, graveSeed, addedBy: user.id })
         .returning();
 
       // L'ajouteur devient membre du cimetière (issue #22).
@@ -176,32 +170,21 @@ export async function colleagueRoutes(app: FastifyInstance) {
       .innerJoin(companies, eq(companies.id, colleagues.companyId))
       .where(eq(colleagues.id, id))
       .limit(1);
-
     if (!row) return reply.code(404).send({ error: "Tombe introuvable." });
 
     const now = new Date();
-    const counts = await activeOfferingCounts([id], now);
-    const [karmaRow] = await db
-      .select({ karma: sql<number>`coalesce(sum(${colleagues.voteScore}), 0)::int` })
-      .from(colleagues)
-      .where(eq(colleagues.companyId, row.companyId));
-
-    const isMember = await isCemeteryMember(row.companyId, request);
-    const construction = row.departedOn !== null && new Date(row.departedOn) > now;
+    const sessionUser = await getSessionUser(request);
+    const [counts, karmaResult, isMember] = await Promise.all([
+      activeOfferingCounts([id], now),
+      db.select({ karma: sql<number>`coalesce(sum(${colleagues.voteScore}), 0)::int` })
+        .from(colleagues).where(eq(colleagues.companyId, row.companyId)),
+      isCemeteryMember(row.companyId, sessionUser?.id ?? null),
+    ]);
 
     return {
-      id: row.id,
-      name: isMember ? row.name : deterministicAnagram(row.name),
-      quote: row.quote,
-      departedOn: row.departedOn,
-      graveSeed: row.graveSeed,
-      voteScore: row.voteScore,
-      maintenance: effectiveMaintenance(row.maintenance, row.maintainedAt ?? row.createdAt, now),
-      createdAt: row.createdAt,
-      offeringCounts: counts.get(id) ?? { flower: 0, candle: 0, stone: 0 },
-      construction,
+      ...serializeColleague(row, isMember, now, counts.get(id) ?? { flower: 0, candle: 0, stone: 0 }),
       company: { id: row.companyId, name: row.companyName, slug: row.companySlug, closed: row.companyClosed !== null },
-      karma: karmaRow?.karma ?? 0,
+      karma: karmaResult[0]?.karma ?? 0,
       anonymized: !isMember,
     };
   });

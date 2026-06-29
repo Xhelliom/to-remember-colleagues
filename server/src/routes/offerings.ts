@@ -1,10 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import { and, asc, eq, gt, isNull, or } from "drizzle-orm";
 import { db } from "../db/client.ts";
-import { colleagues, graveOfferings } from "../db/schema.ts";
+import { graveOfferings } from "../db/schema.ts";
 import { requireUser } from "../session.ts";
 import { ID_PARAM_SCHEMA } from "../lib/schemas.ts";
 import { activeOfferingCounts, OFFERING_DURATIONS } from "../lib/offerings.ts";
+import { findColleague } from "../lib/queries.ts";
 
 export async function offeringRoutes(app: FastifyInstance) {
   // Liste les offrandes actives d'une tombe.
@@ -55,12 +56,7 @@ export async function offeringRoutes(app: FastifyInstance) {
       const { id } = request.params as { id: string };
       const { type } = request.body as { type: "flower" | "candle" | "stone" };
 
-      const [exists] = await db
-        .select({ id: colleagues.id })
-        .from(colleagues)
-        .where(eq(colleagues.id, id))
-        .limit(1);
-      if (!exists) return reply.code(404).send({ error: "Tombe introuvable." });
+      if (!await findColleague(id)) return reply.code(404).send({ error: "Tombe introuvable." });
 
       const durationMs = OFFERING_DURATIONS[type];
       const expiresAt = durationMs !== null ? new Date(Date.now() + durationMs) : null;
