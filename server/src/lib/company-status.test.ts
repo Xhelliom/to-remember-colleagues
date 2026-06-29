@@ -19,4 +19,10 @@ describe("companyStatus", () => {
     expect(companyStatus(5, "2023-01-01", NOW)).toBe("En sommeil");
     expect(companyStatus(2, "2020-12-31", NOW)).toBe("En sommeil");
   });
+
+  it("est Fermé quand closedAt est défini, quelle que soit l'activité", () => {
+    expect(companyStatus(0, null, NOW, "2026-06-01T10:00:00Z")).toBe("Fermé");
+    expect(companyStatus(5, "2026-06-01", NOW, "2026-06-10T00:00:00Z")).toBe("Fermé");
+    expect(companyStatus(3, "2020-01-01", NOW, "2025-03-15T08:30:00Z")).toBe("Fermé");
+  });
 });

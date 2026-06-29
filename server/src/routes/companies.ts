@@ -1,10 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import { asc, eq, sql } from "drizzle-orm";
 import { db } from "../db/client.ts";
-import { companies, colleagues } from "../db/schema.ts";
+import { companies, colleagues, companyMembers, graveOfferings } from "../db/schema.ts";
 import { requireUser } from "../session.ts";
 import { slugify, uniqueSlug } from "../lib/slug.ts";
 import { companyStatus } from "../lib/company-status.ts";
+import { ID_PARAM_SCHEMA } from "../lib/schemas.ts";
 
 const createCompanySchema = {
   body: {
@@ -18,7 +19,7 @@ const createCompanySchema = {
 } as const;
 
 export async function companyRoutes(app: FastifyInstance) {
-  // Liste des cimetières (entreprises) avec nombre de tombes, karma et statut.
+  // Liste des cimetières (entreprises) avec nombre de tombes, karma, offrandes et statut.
   app.get("/api/companies", async () => {
     const rows = await db
       .select({
@@ -26,12 +27,20 @@ export async function companyRoutes(app: FastifyInstance) {
         name: companies.name,
         slug: companies.slug,
         description: companies.description,
+        closedAt: companies.closedAt,
         createdAt: companies.createdAt,
-        graveCount: sql<number>`count(${colleagues.id})::int`,
+        graveCount: sql<number>`count(distinct ${colleagues.id})::int`,
         // Karma = somme des votes des tombes (axe 2, issue #25).
         karma: sql<number>`coalesce(sum(${colleagues.voteScore}), 0)::int`,
         // Dernière inhumation, pour dériver le statut d'activité (issue #5).
         lastBurial: sql<string | null>`max(${colleagues.createdAt})`,
+        // Offrandes actives sur l'ensemble des tombes (issue #20 : classements).
+        offeringCount: sql<number>`(
+          select count(go.id)::int from ${graveOfferings} go
+          inner join ${colleagues} c2 on c2.id = go.colleague_id
+          where c2.company_id = ${companies.id}
+          and (go.expires_at is null or go.expires_at > now())
+        )`,
       })
       .from(companies)
       .leftJoin(colleagues, eq(colleagues.companyId, companies.id))
@@ -39,9 +48,9 @@ export async function companyRoutes(app: FastifyInstance) {
       .orderBy(asc(companies.name));
 
     const now = Date.now();
-    return rows.map(({ lastBurial, ...row }) => ({
+    return rows.map(({ lastBurial, closedAt, ...row }) => ({
       ...row,
-      status: companyStatus(row.graveCount, lastBurial, now),
+      status: companyStatus(row.graveCount, lastBurial, now, closedAt?.toISOString()),
     }));
   });
 
@@ -66,6 +75,46 @@ export async function companyRoutes(app: FastifyInstance) {
       .insert(companies)
       .values({ name, description: description ?? null, slug, createdBy: user.id })
       .returning();
+
+    // Le créateur devient automatiquement membre (issue #22).
+    await db.insert(companyMembers).values({ companyId: created.id, userId: user.id }).onConflictDoNothing();
+
     return reply.code(201).send(created);
   });
+
+  // Fermeture d'un cimetière (issue #6) : plus d'ajout de tombe possible.
+  app.post(
+    "/api/companies/:id/close",
+    { schema: { params: ID_PARAM_SCHEMA } },
+    async (request, reply) => {
+      const user = await requireUser(request, reply);
+      if (!user) return;
+      const { id } = request.params as { id: string };
+      const [row] = await db
+        .update(companies)
+        .set({ closedAt: new Date() })
+        .where(eq(companies.id, id))
+        .returning({ id: companies.id });
+      if (!row) return reply.code(404).send({ error: "Cimetière introuvable." });
+      return { closed: true };
+    },
+  );
+
+  // Réouverture d'un cimetière fermé (issue #6).
+  app.post(
+    "/api/companies/:id/reopen",
+    { schema: { params: ID_PARAM_SCHEMA } },
+    async (request, reply) => {
+      const user = await requireUser(request, reply);
+      if (!user) return;
+      const { id } = request.params as { id: string };
+      const [row] = await db
+        .update(companies)
+        .set({ closedAt: null })
+        .where(eq(companies.id, id))
+        .returning({ id: companies.id });
+      if (!row) return reply.code(404).send({ error: "Cimetière introuvable." });
+      return { closed: false };
+    },
+  );
 }

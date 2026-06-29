@@ -2,7 +2,9 @@
 
 export type TimeKey = "dawn" | "day" | "dusk" | "night";
 export type SeasonKey = "spring" | "summer" | "autumn" | "winter" | "halloween";
-export type ParticleKind = "none" | "snow" | "leaves" | "pollen" | "embers";
+export type ParticleKind = "none" | "snow" | "leaves" | "pollen" | "embers" | "rain";
+/** Météo dynamique (issue #8) : modifie le brouillard et les particules par-dessus l'ambiance de base. */
+export type WeatherKey = "clear" | "brumeux" | "orageux";
 
 export type TimeSetting = TimeKey | "auto";
 export type SeasonSetting = SeasonKey | "auto";
@@ -151,6 +153,74 @@ export function getAmbiance(timeKey: TimeKey, seasonKey: SeasonKey): Ambiance {
   }
 
   return base;
+}
+
+// Seuils et saturation du karma pour le thème Paradis/Enfer (issue #3).
+const KARMA_THRESHOLD = 10;
+const KARMA_SATURATE = 40;
+
+/**
+ * Superpose le thème karmatique sur une ambiance de base (issue #3).
+ * Karma ≥ 10 → teinture dorée/verdoyante (Paradis).
+ * Karma ≤ -10 → teinture rouge-sombre/brasier (Enfer).
+ * Halloween conserve son ambiance propre, indépendante du karma.
+ */
+export function applyKarmaTheme(a: Ambiance, karma: number): Ambiance {
+  if (a.scary) return a;
+
+  const paradis = Math.min(1, Math.max(0, (karma - KARMA_THRESHOLD) / KARMA_SATURATE));
+  const enfer = Math.min(1, Math.max(0, (-karma - KARMA_THRESHOLD) / KARMA_SATURATE));
+  if (paradis === 0 && enfer === 0) return a;
+
+  const r = { ...a };
+  if (paradis > 0) {
+    r.skyTop = mix(a.skyTop, 0x7ec8e3, paradis * 0.5);
+    r.skyBottom = mix(a.skyBottom, 0xd4f4c4, paradis * 0.6);
+    r.fogColor = mix(a.fogColor, 0xbfe8d8, paradis * 0.4);
+    r.fogDensity = a.fogDensity * (1 - paradis * 0.35);
+    r.hemiSky = mix(a.hemiSky, 0xd4f0e8, paradis * 0.4);
+    r.hemiIntensity = a.hemiIntensity * (1 + paradis * 0.25);
+    r.keyLightColor = mix(a.keyLightColor, 0xfff8cc, paradis * 0.3);
+    r.groundColor = mix(a.groundColor, 0x5a8040, paradis * 0.4);
+    if (paradis > 0.5) r.particles = "pollen";
+  }
+  if (enfer > 0) {
+    r.skyTop = mix(a.skyTop, 0x1a0404, enfer * 0.7);
+    r.skyBottom = mix(a.skyBottom, 0x3a0808, enfer * 0.7);
+    r.fogColor = mix(a.fogColor, 0x2a0606, enfer * 0.6);
+    r.fogDensity = a.fogDensity * (1 + enfer * 0.8);
+    r.hemiSky = mix(a.hemiSky, 0x3a1010, enfer * 0.5);
+    r.hemiGround = mix(a.hemiGround, 0x1a0808, enfer * 0.5);
+    r.keyLightColor = mix(a.keyLightColor, 0xff4a1a, enfer * 0.5);
+    r.groundColor = mix(a.groundColor, 0x2a1510, enfer * 0.5);
+    r.graveColor = mix(a.graveColor, 0x2a1818, enfer * 0.4);
+    if (enfer > 0.5) r.particles = "embers";
+  }
+  return r;
+}
+
+/**
+ * Applique une couche météo sur une ambiance de base (issue #8).
+ * Ne modifie ni le temps de la journée ni la saison.
+ */
+export function applyWeather(a: Ambiance, weather: WeatherKey): Ambiance {
+  if (weather === "clear") return a;
+  const r = { ...a };
+  if (weather === "brumeux") {
+    r.fogDensity = a.fogDensity * 2.8;
+    r.fogColor = mix(a.fogColor, 0x8a9aaa, 0.35);
+    r.hemiIntensity = a.hemiIntensity * 0.8;
+    // Pluie fine seulement si aucune particule de saison déjà active.
+    if (a.particles === "none") r.particles = "rain";
+  } else {
+    // Orageux : brume épaisse, lumière étouffée, pluie battante.
+    r.fogDensity = a.fogDensity * 5;
+    r.fogColor = mix(a.fogColor, 0x4a5060, 0.55);
+    r.hemiIntensity = a.hemiIntensity * 0.5;
+    r.keyLightIntensity = a.keyLightIntensity * 0.35;
+    r.particles = "rain";
+  }
+  return r;
 }
 
 /** Mélange linéaire de deux couleurs hexadécimales (t entre 0 et 1). */

@@ -56,6 +56,12 @@
       </div>
       <p class="subtitle">Chaque entreprise a son cimetière. Entrez vous recueillir.</p>
       <button id="explore-btn" class="primary-btn">🚶 Explorer la route des cimetières</button>
+      <div class="leaderboard-sort">
+        <span class="sort-label">Trier :</span>
+        <button class="sort-btn active" data-sort="name">🔤 Nom</button>
+        <button class="sort-btn" data-sort="karma">⚖️ Karma</button>
+        <button class="sort-btn" data-sort="graves">⚰️ Tombes</button>
+      </div>
       <div id="company-list" class="company-list"></div>
       <button id="add-company-btn" class="ghost-btn">+ Nouvelle entreprise</button>
     </div>
@@ -71,13 +77,31 @@
       <div class="grave-panel-name"></div>
       <div class="grave-panel-dates"></div>
       <blockquote class="grave-panel-quote"></blockquote>
+      <div class="grave-panel-actions">
+        <button id="vote-up-btn" class="ghost-btn small vote-btn" title="Upvote">▲ <span id="vote-score">0</span></button>
+        <button id="vote-down-btn" class="ghost-btn small vote-btn" title="Downvote">▼</button>
+        <button id="guestbook-btn" class="ghost-btn small">📖 Livre d'or</button>
+        <button id="offering-btn" class="ghost-btn small">🕯 Offrande</button>
+        <button id="maintain-btn" class="ghost-btn small">🌿 Entretenir</button>
+        <button id="share-btn" class="ghost-btn small">🔗 Partager</button>
+      </div>
+      <div id="offering-counts" class="offering-counts hidden"></div>
+    </div>
+
+    <!-- Avertissement anonymisation (issue #22) -->
+    <div id="anon-notice" class="anon-notice hidden">🔒 Noms anonymisés — ajoutez un collègue pour rejoindre ce cimetière</div>
+
+    <!-- Karma global du cimetière (issue #3) -->
+    <div id="karma-gauge" class="karma-gauge hidden">
+      <span id="karma-label"></span>
+      <div class="karma-bar-track"><div id="karma-bar" class="karma-bar"></div></div>
     </div>
 
     <!-- Invite d'entrée affichée à l'approche d'un portail (hub) -->
     <div id="portal-prompt" class="portal-prompt hidden"></div>
 
     <div id="controls-hint" class="controls-hint">
-      <strong>ZQSD / WASD</strong> ou flèches · <strong>Souris</strong> pour regarder · <strong>Maj</strong> pour courir · <strong>E</strong> pour entrer · <strong>F</strong> pour saluer · <strong>Échap</strong> pour le menu
+      <strong>ZQSD / WASD</strong> ou flèches · <strong>Souris</strong> pour regarder · <strong>Maj</strong> pour courir · <strong>E</strong> pour entrer · <strong>F</strong> pour saluer · <strong>R</strong> pour entretenir · <strong>Échap</strong> pour le menu
     </div>
 
     <div class="hud-buttons">
@@ -115,6 +139,22 @@
 
     <div id="lock-prompt" class="lock-prompt">
       <p>Cliquez pour entrer dans le cimetière</p>
+    </div>
+  </div>
+
+  <!-- Livre d'or (issue #9) -->
+  <div id="guestbook" class="overlay guestbook-overlay hidden">
+    <div class="panel guestbook-panel">
+      <div class="guestbook-header">
+        <h2 id="guestbook-title">Livre d'or</h2>
+        <button id="guestbook-close" class="ghost-btn small">✕ Fermer</button>
+      </div>
+      <div id="guestbook-messages" class="guestbook-messages"></div>
+      <form id="guestbook-form" class="guestbook-form">
+        <textarea id="guestbook-content" name="content" placeholder="Laissez un hommage…" maxlength="500" rows="3" required></textarea>
+        <p class="guestbook-error hidden"></p>
+        <button type="submit" class="primary-btn">Déposer un hommage</button>
+      </form>
     </div>
   </div>
 

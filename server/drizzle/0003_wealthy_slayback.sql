@@ -1,0 +1,1 @@
+ALTER TABLE "companies" ADD COLUMN "closed_at" timestamp with time zone;

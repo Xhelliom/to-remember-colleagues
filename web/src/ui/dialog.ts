@@ -1,7 +1,8 @@
 export type DialogField = {
   name: string;
   label: string;
-  type?: "text" | "date" | "textarea";
+  type?: "text" | "date" | "textarea" | "select";
+  options?: { value: string; label: string }[];
   required?: boolean;
   maxLength?: number;
 };
@@ -32,15 +33,33 @@ export function openDialog(
     const span = document.createElement("span");
     span.textContent = field.label;
     label.appendChild(span);
-    const input =
-      field.type === "textarea"
-        ? document.createElement("textarea")
-        : document.createElement("input");
-    input.name = field.name;
-    if (field.required) input.required = true;
-    if (field.maxLength) input.maxLength = field.maxLength;
-    if (input instanceof HTMLInputElement) input.type = field.type === "date" ? "date" : "text";
-    if (input instanceof HTMLTextAreaElement) input.rows = 3;
+    let input: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
+    if (field.type === "select") {
+      const sel = document.createElement("select");
+      sel.name = field.name;
+      if (field.required) sel.required = true;
+      for (const opt of field.options ?? []) {
+        const option = document.createElement("option");
+        option.value = opt.value;
+        option.textContent = opt.label;
+        sel.appendChild(option);
+      }
+      input = sel;
+    } else if (field.type === "textarea") {
+      const ta = document.createElement("textarea");
+      ta.name = field.name;
+      ta.rows = 3;
+      if (field.required) ta.required = true;
+      if (field.maxLength) ta.maxLength = field.maxLength;
+      input = ta;
+    } else {
+      const inp = document.createElement("input");
+      inp.name = field.name;
+      inp.type = field.type === "date" ? "date" : "text";
+      if (field.required) inp.required = true;
+      if (field.maxLength) inp.maxLength = field.maxLength;
+      input = inp;
+    }
     label.appendChild(input);
     fieldsEl.appendChild(label);
   }

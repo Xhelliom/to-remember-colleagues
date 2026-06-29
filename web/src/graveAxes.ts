@@ -16,6 +16,8 @@ export type GraveAxes = {
   vote: number;
   /** 0 = négligé, 1 = impeccable. État d'entretien. */
   maintenance: number;
+  /** Vrai si le départ est annoncé mais pas encore survenu (issue #21). */
+  construction: boolean;
 };
 
 export type GraveData = {
@@ -23,6 +25,7 @@ export type GraveData = {
   createdAt: string;
   voteScore: number;
   maintenance: number;
+  construction: boolean;
 };
 
 const MS_PER_YEAR = 365.25 * 24 * 3600 * 1000;
@@ -54,11 +57,12 @@ export function maintenanceAxis(maintenance: number): number {
   return clamp(maintenance, 0, 1);
 }
 
-/** Combine les données brutes d'une tombe en ses trois axes normalisés. */
+/** Combine les données brutes d'une tombe en ses axes normalisés. */
 export function graveAxes(c: GraveData, now: number): GraveAxes {
   return {
     age: ageFromDate(c.departedOn, c.createdAt, now),
     vote: voteAxis(c.voteScore),
     maintenance: maintenanceAxis(c.maintenance),
+    construction: c.construction,
   };
 }

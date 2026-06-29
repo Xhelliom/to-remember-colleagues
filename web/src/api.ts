@@ -1,5 +1,5 @@
 import { createAuthClient } from "better-auth/client";
-import type { Company, CompanyDetail, Colleague, User } from "./types.ts";
+import type { Company, CompanyDetail, Colleague, ColleagueDetail, GraveMessage, OfferingCounts, OfferingType, User } from "./types.ts";
 
 export const authClient = createAuthClient({
   basePath: "/api/auth",
@@ -75,4 +75,92 @@ export async function createColleague(
     body: JSON.stringify(payload),
   });
   return json<Colleague>(res);
+}
+
+// --- Cycle de vie (#6) ---
+
+export async function closeCompany(companyId: string): Promise<void> {
+  const res = await fetch(`/api/companies/${companyId}/close`, {
+    method: "POST",
+    credentials: "include",
+  });
+  await json<unknown>(res);
+}
+
+export async function reopenCompany(companyId: string): Promise<void> {
+  const res = await fetch(`/api/companies/${companyId}/reopen`, {
+    method: "POST",
+    credentials: "include",
+  });
+  await json<unknown>(res);
+}
+
+// --- Lien de partage (#18) ---
+
+export async function getColleagueById(id: string): Promise<ColleagueDetail> {
+  return json<ColleagueDetail>(
+    await fetch(`/api/colleagues/${id}`, { credentials: "include" }),
+  );
+}
+
+// --- Livre d'or (#9) ---
+
+export async function getGraveMessages(colleagueId: string): Promise<GraveMessage[]> {
+  return json<GraveMessage[]>(
+    await fetch(`/api/colleagues/${colleagueId}/messages`, { credentials: "include" }),
+  );
+}
+
+export async function addGraveMessage(colleagueId: string, content: string): Promise<GraveMessage> {
+  const res = await fetch(`/api/colleagues/${colleagueId}/messages`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ content }),
+  });
+  return json<GraveMessage>(res);
+}
+
+// --- Entretien (axe 3, #14) ---
+
+export async function maintainColleague(colleagueId: string): Promise<{ maintenance: number }> {
+  const res = await fetch(`/api/colleagues/${colleagueId}/maintain`, {
+    method: "POST",
+    credentials: "include",
+  });
+  return json<{ maintenance: number }>(res);
+}
+
+// --- Offrandes éphémères (#7) ---
+
+export async function addOffering(colleagueId: string, type: OfferingType): Promise<OfferingCounts> {
+  const res = await fetch(`/api/colleagues/${colleagueId}/offerings`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ type }),
+  });
+  return json<OfferingCounts>(res);
+}
+
+// --- Votes (#2) ---
+
+export async function getMyVote(colleagueId: string): Promise<-1 | 0 | 1> {
+  const data = await json<{ value: -1 | 0 | 1 }>(
+    await fetch(`/api/colleagues/${colleagueId}/vote`, { credentials: "include" }),
+  );
+  return data.value;
+}
+
+export async function voteColleague(
+  colleagueId: string,
+  value: -1 | 0 | 1,
+): Promise<{ voteScore: number }> {
+  const res = await fetch(`/api/colleagues/${colleagueId}/vote`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ value }),
+  });
+  return json<{ voteScore: number }>(res);
 }

@@ -46,11 +46,20 @@ describe("maintenanceAxis (axe 3 — entretien)", () => {
 describe("graveAxes — les 3 axes sont indépendants", () => {
   it("rend une tombe vieille + paradisiaque + négligée sans qu'un axe en écrase un autre", () => {
     const combo = graveAxes(
-      { departedOn: "1980-01-01", createdAt: "2026-01-01", voteScore: 40, maintenance: 0.1 },
+      { departedOn: "1980-01-01", createdAt: "2026-01-01", voteScore: 40, maintenance: 0.1, construction: false },
       NOW,
     );
     expect(combo.age).toBe(1);
     expect(combo.vote).toBeGreaterThan(0.9);
     expect(combo.maintenance).toBeLessThan(0.2);
+    expect(combo.construction).toBe(false);
+  });
+
+  it("propage construction=true depuis les données brutes (issue #21)", () => {
+    const axes = graveAxes(
+      { departedOn: "2027-01-01", createdAt: "2026-06-01", voteScore: 0, maintenance: 0.8, construction: true },
+      NOW,
+    );
+    expect(axes.construction).toBe(true);
   });
 });

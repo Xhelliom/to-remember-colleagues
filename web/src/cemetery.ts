@@ -6,7 +6,7 @@ import { cemeteryLayout } from "./procedural.ts";
 import { buildHub, type Portal } from "./hub.ts";
 import { Presence, type PeerState } from "./net.ts";
 import { makeAvatar, showEmote, tickEmote, type Avatar } from "./avatars.ts";
-import { getAmbiance, resolveSeasonKey, resolveTimeKey, type Ambiance, type SeasonSetting, type TimeSetting } from "./ambiance.ts";
+import { applyKarmaTheme, applyWeather, getAmbiance, resolveSeasonKey, resolveTimeKey, type Ambiance, type SeasonSetting, type TimeSetting, type WeatherKey } from "./ambiance.ts";
 import { createSky, type Sky } from "./scene/sky.ts";
 import { Lighting } from "./scene/lighting.ts";
 import { Decor } from "./scene/decor.ts";
@@ -24,6 +24,8 @@ const GROUND_SEGMENTS = 64;
 const MIN_PLOT_HALF = 16;
 const ENTRANCE_OFFSET = 3;
 const PEER_SMOOTH_RATE = 10; // lissage exponentiel de l'interpolation des pairs
+// Distribution pondérée de la météo : beau temps 3× plus fréquent.
+const WEATHER_OPTIONS: WeatherKey[] = ["clear", "clear", "clear", "brumeux", "orageux"];
 
 type Mode = "cemetery" | "hub";
 
@@ -52,8 +54,16 @@ export class Cemetery {
   private ambiance: Ambiance;
   private timeSetting: TimeSetting = "auto";
   private seasonSetting: SeasonSetting = "auto";
+  /** Karma du cimetière courant, pour le thème Paradis/Enfer (issue #3). */
+  private karma = 0;
   private plotHalf = MIN_PLOT_HALF;
   private running = false;
+
+  // Météo dynamique (#8) : changement automatique toutes les 5–15 min.
+  private weather: WeatherKey = "clear";
+  private weatherChangeAt = 0;
+  private ambianceRefreshAt = 0;
+  private maintainCb: (c: Colleague) => void = () => {};
 
   private focusCb: (c: Colleague | null) => void = () => {};
   private focused: Colleague | null = null;
@@ -119,6 +129,11 @@ export class Cemetery {
     this.countCb = cb;
   }
 
+  /** Appelé quand l'utilisateur appuie sur R près d'une tombe (issue #8). */
+  onMaintainRequest(cb: (c: Colleague) => void) {
+    this.maintainCb = cb;
+  }
+
   setVisitorName(name: string) {
     this.visitorName = name;
   }
@@ -143,7 +158,11 @@ export class Cemetery {
     this.mode = "cemetery";
     this.clearHub();
     this.detail = detail;
-    this.layoutGraves();
+    this.karma = detail.karma;
+    // Recalcule l'ambiance avec le thème karma avant de construire les tombes.
+    this.ambiance = this.resolveAmbiance();
+    this.applyAmbiance(this.ambiance);
+    this.layoutGraves(); // reconstruit tombes + décor avec le bon plotHalf
     this.controls.setBound(this.plotHalf);
     this.controls.placeAt(0, this.plotHalf - ENTRANCE_OFFSET);
     this.connectRoom(`cem:${detail.company.id}`);
@@ -152,6 +171,7 @@ export class Cemetery {
   /** Entre dans le hub : route + portails de tous les cimetières (issue #5). */
   enterHub(companies: Company[]) {
     this.mode = "hub";
+    this.karma = 0;
     this.detail = null;
     this.gravesGroup.clear();
     this.clearHub();
@@ -162,7 +182,9 @@ export class Cemetery {
     this.plotHalf = Math.max(hub.bounds.maxX - hub.bounds.minX, hub.bounds.maxZ - hub.bounds.minZ);
     this.controls.setBoundsRect(hub.bounds);
     this.controls.placeAt(hub.start.x, hub.start.z);
-    this.decor.build(this.ambiance, this.plotHalf, { structures: false });
+    // Rafraîchit l'ambiance (sans thème karma dans le hub).
+    this.ambiance = this.resolveAmbiance();
+    this.applyAmbiance(this.ambiance);
     this.connectRoom("hub");
   }
 
@@ -170,6 +192,24 @@ export class Cemetery {
     if (!this.detail) return;
     this.detail.colleagues.push(colleague);
     this.layoutGraves();
+  }
+
+  updateColleague(colleague: Colleague) {
+    if (!this.detail) return;
+    const idx = this.detail.colleagues.findIndex((c) => c.id === colleague.id);
+    if (idx >= 0) this.detail.colleagues[idx] = colleague;
+    this.layoutGraves();
+  }
+
+  /** Place la caméra à proximité d'une tombe donnée (issue #18 : lien de partage). */
+  highlightGrave(id: string) {
+    if (!this.detail) return;
+    const idx = this.detail.colleagues.findIndex((c) => c.id === id);
+    if (idx < 0) return;
+    const layout = cemeteryLayout(this.detail.company.id, this.detail.colleagues.length);
+    const place = layout.placements[idx];
+    if (!place) return;
+    this.controls.placeAt(place.x, place.z + 2);
   }
 
   setAmbianceSettings(time: TimeSetting, season: SeasonSetting) {
@@ -208,18 +248,21 @@ export class Cemetery {
     const now = new Date();
     const timeKey = resolveTimeKey(this.timeSetting, now.getHours());
     const seasonKey = resolveSeasonKey(this.seasonSetting, now.getMonth() + 1, now.getDate());
-    return getAmbiance(timeKey, seasonKey);
+    const base = getAmbiance(timeKey, seasonKey);
+    // Thème karma uniquement en mode cimetière (issue #3).
+    return this.mode === "cemetery" ? applyKarmaTheme(base, this.karma) : base;
   }
 
   private applyAmbiance(a: Ambiance) {
-    this.sky.setColors(a.skyTop, a.skyBottom);
+    const effective = applyWeather(a, this.weather);
+    this.sky.setColors(effective.skyTop, effective.skyBottom);
     const fog = this.scene.fog as THREE.FogExp2;
-    fog.color.setHex(a.fogColor);
-    fog.density = a.fogDensity;
-    this.lighting.apply(a);
-    this.groundMat.color.setHex(a.groundColor);
+    fog.color.setHex(effective.fogColor);
+    fog.density = effective.fogDensity;
+    this.lighting.apply(effective);
+    this.groundMat.color.setHex(effective.groundColor);
     // Enceinte/arbres seulement en cimetière ; le hub ne garde que les particules.
-    this.decor.build(a, this.plotHalf, { structures: this.mode === "cemetery" });
+    this.decor.build(effective, this.plotHalf, { structures: this.mode === "cemetery" });
   }
 
   private layoutGraves() {
@@ -242,7 +285,7 @@ export class Cemetery {
       this.gravesGroup.add(grave);
     });
 
-    this.decor.build(this.ambiance, this.plotHalf);
+    this.decor.build(applyWeather(this.ambiance, this.weather), this.plotHalf);
   }
 
   // ---- Présence multijoueur (#4) ----
@@ -294,6 +337,25 @@ export class Cemetery {
     disposeGroup(this.hubGroup);
     this.portals = [];
     this.setPortal(null);
+  }
+
+  // ---- Météo & ambiance auto (#8) ----
+
+  private maybeRefreshAmbiance() {
+    const now = performance.now();
+    if (now >= this.weatherChangeAt) {
+      this.weather = WEATHER_OPTIONS[Math.floor(Math.random() * WEATHER_OPTIONS.length)];
+      this.weatherChangeAt = now + (5 + Math.random() * 10) * 60_000;
+      this.applyAmbiance(this.ambiance);
+    }
+    if (now >= this.ambianceRefreshAt) {
+      const next = this.resolveAmbiance();
+      const graveColorChanged = next.graveColor !== this.ambiance.graveColor;
+      this.ambiance = next;
+      this.applyAmbiance(next);
+      if (graveColorChanged && this.mode === "cemetery") this.layoutGraves();
+      this.ambianceRefreshAt = now + 60_000;
+    }
   }
 
   // ---- Boucle ----
@@ -374,6 +436,7 @@ export class Cemetery {
     }
     this.updatePeers(dt);
     this.decor.update(dt, this.clock.elapsedTime);
+    this.maybeRefreshAmbiance();
     this.renderer.render(this.scene, this.camera);
   };
 
@@ -389,6 +452,8 @@ export class Cemetery {
       this.enterPortalCb(this.nearPortal.company); // entrer dans un cimetière (#5)
     } else if (e.code === "KeyF") {
       this.emote("wave"); // emote « saluer » synchronisée (#4)
+    } else if (e.code === "KeyR" && this.mode === "cemetery" && this.focused) {
+      this.maintainCb(this.focused); // entretien de la tombe ciblée (raccourci #8)
     }
   };
 }

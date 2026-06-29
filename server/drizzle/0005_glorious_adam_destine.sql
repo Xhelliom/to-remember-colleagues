@@ -1,0 +1,1 @@
+ALTER TABLE "colleagues" ADD COLUMN "maintained_at" timestamp with time zone;
