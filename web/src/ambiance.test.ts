@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { getAmbiance, mix, resolveSeasonKey, resolveTimeKey } from "./ambiance.ts";
+import { applyKarmaTheme, getAmbiance, mix, resolveSeasonKey, resolveTimeKey } from "./ambiance.ts";
 
 describe("resolveTimeKey", () => {
   it("respecte le réglage manuel sans regarder l'heure", () => {
@@ -61,6 +61,41 @@ describe("getAmbiance", () => {
     expect(getAmbiance("night", "summer").fogDensity).toBeGreaterThan(
       getAmbiance("day", "summer").fogDensity,
     );
+  });
+});
+
+describe("applyKarmaTheme (issue #3)", () => {
+  const base = getAmbiance("day", "summer");
+
+  it("retourne l'ambiance inchangée en zone neutre (|karma| < 10)", () => {
+    expect(applyKarmaTheme(base, 0)).toBe(base);
+    expect(applyKarmaTheme(base, 9)).toBe(base);
+    expect(applyKarmaTheme(base, -9)).toBe(base);
+  });
+
+  it("modifie le ciel pour un karma positif (Paradis)", () => {
+    const a = applyKarmaTheme(base, 30);
+    // Le ciel doit être plus clair/bleuté que la base.
+    expect(a.skyTop).not.toBe(base.skyTop);
+    expect(a.fogDensity).toBeLessThan(base.fogDensity);
+  });
+
+  it("modifie le ciel pour un karma négatif (Enfer)", () => {
+    const a = applyKarmaTheme(base, -30);
+    // Le brouillard doit être plus dense.
+    expect(a.fogDensity).toBeGreaterThan(base.fogDensity);
+    expect(a.skyTop).not.toBe(base.skyTop);
+  });
+
+  it("active les particules pollen en Paradis fort et braises en Enfer fort", () => {
+    expect(applyKarmaTheme(base, 50).particles).toBe("pollen");
+    expect(applyKarmaTheme(base, -50).particles).toBe("embers");
+  });
+
+  it("respecte l'ambiance Halloween (scary) sans la modifier", () => {
+    const halloween = getAmbiance("night", "halloween");
+    expect(applyKarmaTheme(halloween, 50)).toBe(halloween);
+    expect(applyKarmaTheme(halloween, -50)).toBe(halloween);
   });
 });
 

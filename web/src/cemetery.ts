@@ -6,7 +6,7 @@ import { cemeteryLayout } from "./procedural.ts";
 import { buildHub, type Portal } from "./hub.ts";
 import { Presence, type PeerState } from "./net.ts";
 import { makeAvatar, showEmote, tickEmote, type Avatar } from "./avatars.ts";
-import { getAmbiance, resolveSeasonKey, resolveTimeKey, type Ambiance, type SeasonSetting, type TimeSetting } from "./ambiance.ts";
+import { applyKarmaTheme, getAmbiance, resolveSeasonKey, resolveTimeKey, type Ambiance, type SeasonSetting, type TimeSetting } from "./ambiance.ts";
 import { createSky, type Sky } from "./scene/sky.ts";
 import { Lighting } from "./scene/lighting.ts";
 import { Decor } from "./scene/decor.ts";
@@ -52,6 +52,8 @@ export class Cemetery {
   private ambiance: Ambiance;
   private timeSetting: TimeSetting = "auto";
   private seasonSetting: SeasonSetting = "auto";
+  /** Karma du cimetière courant, pour le thème Paradis/Enfer (issue #3). */
+  private karma = 0;
   private plotHalf = MIN_PLOT_HALF;
   private running = false;
 
@@ -143,7 +145,11 @@ export class Cemetery {
     this.mode = "cemetery";
     this.clearHub();
     this.detail = detail;
-    this.layoutGraves();
+    this.karma = detail.karma;
+    // Recalcule l'ambiance avec le thème karma avant de construire les tombes.
+    this.ambiance = this.resolveAmbiance();
+    this.applyAmbiance(this.ambiance);
+    this.layoutGraves(); // reconstruit tombes + décor avec le bon plotHalf
     this.controls.setBound(this.plotHalf);
     this.controls.placeAt(0, this.plotHalf - ENTRANCE_OFFSET);
     this.connectRoom(`cem:${detail.company.id}`);
@@ -152,6 +158,7 @@ export class Cemetery {
   /** Entre dans le hub : route + portails de tous les cimetières (issue #5). */
   enterHub(companies: Company[]) {
     this.mode = "hub";
+    this.karma = 0;
     this.detail = null;
     this.gravesGroup.clear();
     this.clearHub();
@@ -162,7 +169,9 @@ export class Cemetery {
     this.plotHalf = Math.max(hub.bounds.maxX - hub.bounds.minX, hub.bounds.maxZ - hub.bounds.minZ);
     this.controls.setBoundsRect(hub.bounds);
     this.controls.placeAt(hub.start.x, hub.start.z);
-    this.decor.build(this.ambiance, this.plotHalf, { structures: false });
+    // Rafraîchit l'ambiance (sans thème karma dans le hub).
+    this.ambiance = this.resolveAmbiance();
+    this.applyAmbiance(this.ambiance);
     this.connectRoom("hub");
   }
 
@@ -208,7 +217,9 @@ export class Cemetery {
     const now = new Date();
     const timeKey = resolveTimeKey(this.timeSetting, now.getHours());
     const seasonKey = resolveSeasonKey(this.seasonSetting, now.getMonth() + 1, now.getDate());
-    return getAmbiance(timeKey, seasonKey);
+    const base = getAmbiance(timeKey, seasonKey);
+    // Thème karma uniquement en mode cimetière (issue #3).
+    return this.mode === "cemetery" ? applyKarmaTheme(base, this.karma) : base;
   }
 
   private applyAmbiance(a: Ambiance) {
