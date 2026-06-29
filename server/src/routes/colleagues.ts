@@ -4,10 +4,11 @@ import { db } from "../db/client.ts";
 import { colleagues, companies } from "../db/schema.ts";
 import { requireUser } from "../session.ts";
 import { newGraveSeed } from "../lib/random.ts";
+import { ID_PARAM_SCHEMA } from "../lib/schemas.ts";
 
 export async function colleagueRoutes(app: FastifyInstance) {
   // Liste des collègues (tombes) d'un cimetière.
-  app.get("/api/companies/:id/colleagues", async (request, reply) => {
+  app.get("/api/companies/:id/colleagues", { schema: { params: ID_PARAM_SCHEMA } }, async (request, reply) => {
     const { id } = request.params as { id: string };
 
     const [company] = await db
@@ -51,6 +52,7 @@ export async function colleagueRoutes(app: FastifyInstance) {
     "/api/companies/:id/colleagues",
     {
       schema: {
+        params: ID_PARAM_SCHEMA,
         body: {
           type: "object",
           required: ["name", "quote"],

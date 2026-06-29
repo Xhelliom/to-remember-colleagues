@@ -139,43 +139,46 @@ function setupAmbianceControls(cemetery: Cemetery) {
   seasonSelect.addEventListener("change", applyAmbiance);
 }
 
+/** Libère le pointer lock, appelle fn, puis le réacquiert à la fermeture via onClose. */
+function withUnlocked(cemetery: Cemetery, onClose: (() => void) | undefined, fn: (onClose: (() => void) | undefined) => void) {
+  const wasLocked = cemetery.isLocked;
+  if (wasLocked) cemetery.unlock();
+  fn(wasLocked ? () => { cemetery.requestLock(); onClose?.(); } : onClose);
+}
+
 function setupGraveActions(cemetery: Cemetery, handlers: { onColleagueAdded: () => void }) {
   voteUpBtn.addEventListener("click", () => { void handleVote(1); });
   voteDownBtn.addEventListener("click", () => { void handleVote(-1); });
 
   guestbookBtn.addEventListener("click", () => {
     if (!focusedColleague) return;
-    const wasLocked = cemetery.isLocked;
-    if (wasLocked) cemetery.unlock();
-    void openGuestbook(
-      focusedColleague.id,
-      focusedColleague.name,
-      // Rend la main au cimetière quand le livre d'or se ferme (le clic fermer est un geste utilisateur valide pour requestPointerLock).
-      wasLocked ? () => cemetery.requestLock() : undefined,
-    );
+    withUnlocked(cemetery, undefined, (onClose) => {
+      // Le clic fermer est un geste utilisateur valide pour requestPointerLock.
+      void openGuestbook(focusedColleague!.id, focusedColleague!.name, onClose);
+    });
   });
 
   addGraveBtn.addEventListener("click", () => {
     if (!currentCompanyId) return;
-    const wasLocked = cemetery.isLocked;
-    if (wasLocked) cemetery.unlock();
-    openDialog(
-      "Ajouter un collègue",
-      [
-        { name: "name", label: "Nom du collègue", required: true, maxLength: 160 },
-        { name: "quote", label: "Citation", type: "textarea", required: true, maxLength: 1000 },
-        { name: "departedOn", label: "Date de départ (optionnel)", type: "date" },
-      ],
-      async (values) => {
-        const colleague = await createColleague(currentCompanyId!, {
-          name: values.name,
-          quote: values.quote,
-          departedOn: values.departedOn || undefined,
-        });
-        cemetery.addColleague(colleague);
-        handlers.onColleagueAdded();
-      },
-    );
+    withUnlocked(cemetery, undefined, () => {
+      openDialog(
+        "Ajouter un collègue",
+        [
+          { name: "name", label: "Nom du collègue", required: true, maxLength: 160 },
+          { name: "quote", label: "Citation", type: "textarea", required: true, maxLength: 1000 },
+          { name: "departedOn", label: "Date de départ (optionnel)", type: "date" },
+        ],
+        async (values) => {
+          const colleague = await createColleague(currentCompanyId!, {
+            name: values.name,
+            quote: values.quote,
+            departedOn: values.departedOn || undefined,
+          });
+          cemetery.addColleague(colleague);
+          handlers.onColleagueAdded();
+        },
+      );
+    });
   });
 }
 

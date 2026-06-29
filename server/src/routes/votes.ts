@@ -3,13 +3,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import { graveVotes, colleagues } from "../db/schema.ts";
 import { getSessionUser, requireUser } from "../session.ts";
-
-const UUID_PATTERN = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
-const ID_PARAM_SCHEMA = {
-  type: "object",
-  required: ["id"],
-  properties: { id: { type: "string", pattern: UUID_PATTERN } },
-} as const;
+import { ID_PARAM_SCHEMA } from "../lib/schemas.ts";
 
 export async function voteRoutes(app: FastifyInstance) {
   // Vote de l'utilisateur courant sur une tombe : +1, -1 ou 0 pour retirer.
@@ -53,13 +47,14 @@ export async function voteRoutes(app: FastifyInstance) {
             });
         }
 
-        const [{ sum }] = await tx
-          .select({ sum: sql<number>`coalesce(sum(${graveVotes.value}), 0)::int` })
-          .from(graveVotes)
-          .where(eq(graveVotes.colleagueId, id));
-
-        await tx.update(colleagues).set({ voteScore: sum }).where(eq(colleagues.id, id));
-        return sum;
+        const [{ voteScore }] = await tx
+          .update(colleagues)
+          .set({
+            voteScore: sql<number>`(SELECT coalesce(sum(${graveVotes.value}), 0)::int FROM ${graveVotes} WHERE ${graveVotes.colleagueId} = ${id})`,
+          })
+          .where(eq(colleagues.id, id))
+          .returning({ voteScore: colleagues.voteScore });
+        return voteScore;
       });
 
       return { voteScore: total };

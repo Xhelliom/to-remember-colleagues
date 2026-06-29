@@ -1,5 +1,6 @@
 import { addGraveMessage, getGraveMessages } from "../api.ts";
 import type { GraveMessage } from "../types.ts";
+import { escapeHtml } from "./utils.ts";
 
 const overlay = document.getElementById("guestbook") as HTMLDivElement;
 const titleEl = document.getElementById("guestbook-title") as HTMLHeadingElement;
@@ -12,12 +13,6 @@ const closeBtn = document.getElementById("guestbook-close") as HTMLButtonElement
 let activeColleagueId: string | null = null;
 let onCloseCallback: (() => void) | null = null;
 
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => {
-    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!;
-  });
-}
-
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString("fr-FR", {
     year: "numeric",
@@ -26,38 +21,29 @@ function formatDate(iso: string): string {
   });
 }
 
-function renderMessages(messages: GraveMessage[]) {
-  if (messages.length === 0) {
-    messagesEl.innerHTML = `<p class="guestbook-empty">Aucun hommage pour l'instant. Soyez le premier.</p>`;
-    return;
-  }
-  messagesEl.innerHTML = messages
-    .map(
-      (m) => `
-    <div class="guestbook-msg">
+function messageHtml(m: GraveMessage): string {
+  return `<div class="guestbook-msg">
       <div class="guestbook-msg-header">
         <strong>${escapeHtml(m.authorName)}</strong>
         <span class="guestbook-msg-date">${formatDate(m.createdAt)}</span>
       </div>
       <p class="guestbook-msg-body">${escapeHtml(m.content)}</p>
-    </div>`,
-    )
-    .join("");
+    </div>`;
+}
+
+function renderMessages(messages: GraveMessage[]) {
+  if (messages.length === 0) {
+    messagesEl.innerHTML = `<p class="guestbook-empty">Aucun hommage pour l'instant. Soyez le premier.</p>`;
+    return;
+  }
+  messagesEl.innerHTML = messages.map(messageHtml).join("");
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 
 function appendMessage(m: GraveMessage) {
   const empty = messagesEl.querySelector(".guestbook-empty");
   if (empty) empty.remove();
-  const div = document.createElement("div");
-  div.className = "guestbook-msg";
-  div.innerHTML = `
-    <div class="guestbook-msg-header">
-      <strong>${escapeHtml(m.authorName)}</strong>
-      <span class="guestbook-msg-date">${formatDate(m.createdAt)}</span>
-    </div>
-    <p class="guestbook-msg-body">${escapeHtml(m.content)}</p>`;
-  messagesEl.appendChild(div);
+  messagesEl.insertAdjacentHTML("beforeend", messageHtml(m));
   messagesEl.scrollTop = messagesEl.scrollHeight;
 }
 

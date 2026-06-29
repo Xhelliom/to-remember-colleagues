@@ -1,6 +1,7 @@
 import { createCompany, getCompanies, signOut } from "../api.ts";
 import type { Company, User } from "../types.ts";
 import { openDialog } from "./dialog.ts";
+import { escapeHtml } from "./utils.ts";
 
 const menuEl = document.getElementById("menu") as HTMLDivElement;
 const listEl = document.getElementById("company-list") as HTMLDivElement;
@@ -82,8 +83,3 @@ export function hideMenu() {
   menuEl.classList.add("hidden");
 }
 
-function escapeHtml(s: string): string {
-  return s.replace(/[&<>"']/g, (c) => {
-    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!;
-  });
-}

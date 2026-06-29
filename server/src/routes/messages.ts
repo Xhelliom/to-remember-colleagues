@@ -3,14 +3,9 @@ import { asc, eq } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import { graveMessages, colleagues } from "../db/schema.ts";
 import { requireUser } from "../session.ts";
+import { ID_PARAM_SCHEMA } from "../lib/schemas.ts";
 
 const MAX_CONTENT = 500;
-const UUID_PATTERN = "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$";
-const ID_PARAM_SCHEMA = {
-  type: "object",
-  required: ["id"],
-  properties: { id: { type: "string", pattern: UUID_PATTERN } },
-} as const;
 
 export async function messageRoutes(app: FastifyInstance) {
   // Messages du livre d'or d'une tombe.
