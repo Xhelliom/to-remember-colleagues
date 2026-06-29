@@ -1,0 +1,144 @@
+/* --- Vote & actions tombe (issue #2) --- */
+.grave-panel-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+
+.vote-btn {
+  min-width: 54px;
+}
+
+.vote-btn.active-up {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+  background: rgba(185, 160, 107, 0.12);
+}
+
+.vote-btn.active-down {
+  border-color: var(--danger);
+  color: var(--danger);
+  background: rgba(212, 121, 106, 0.12);
+}
+
+/* --- Karma (issue #3) --- */
+.karma-gauge {
+  position: fixed;
+  bottom: 50px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  background: rgba(8, 9, 14, 0.55);
+  padding: 5px 12px;
+  border-radius: 20px;
+  z-index: 7;
+  pointer-events: none;
+}
+
+.karma-bar-track {
+  width: 80px;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.karma-bar {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.5s, background-color 0.5s;
+}
+
+/* --- Guestbook (issue #9) --- */
+.guestbook-overlay {
+  z-index: 35;
+  align-items: flex-end;
+  padding-bottom: 0;
+}
+
+.guestbook-panel {
+  width: min(600px, 100%);
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+  padding: 24px 28px 20px;
+}
+
+.guestbook-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-shrink: 0;
+}
+
+.guestbook-header h2 {
+  margin: 0;
+  font-size: 1.15rem;
+}
+
+.guestbook-messages {
+  flex: 1;
+  overflow-y: auto;
+  margin-bottom: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 80px;
+}
+
+.guestbook-empty {
+  color: var(--muted);
+  font-style: italic;
+  text-align: center;
+  margin: 12px 0;
+}
+
+.guestbook-msg {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 10px 14px;
+}
+
+.guestbook-msg-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 0.88rem;
+}
+
+.guestbook-msg-date {
+  color: var(--muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.guestbook-msg-body {
+  margin: 0;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.guestbook-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.guestbook-error {
+  color: var(--danger);
+  font-size: 0.9rem;
+  margin: 0;
+}

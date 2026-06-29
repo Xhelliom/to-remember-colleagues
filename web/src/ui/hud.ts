@@ -1,8 +1,10 @@
+import "./social.css";
 import type { Cemetery } from "../cemetery.ts";
-import { createColleague } from "../api.ts";
+import { createColleague, getMyVote, voteColleague } from "../api.ts";
 import type { Colleague } from "../types.ts";
 import type { SeasonSetting, TimeSetting } from "../ambiance.ts";
 import { openDialog } from "./dialog.ts";
+import { openGuestbook } from "./guestbook.ts";
 
 const hudEl = document.getElementById("hud") as HTMLDivElement;
 const nameEl = document.getElementById("cemetery-name") as HTMLDivElement;
@@ -21,8 +23,19 @@ const backRoadBtn = document.getElementById("back-road-btn") as HTMLButtonElemen
 const backMenuBtn = document.getElementById("back-menu-btn") as HTMLButtonElement;
 const portalPrompt = document.getElementById("portal-prompt") as HTMLDivElement;
 const visitorCount = document.getElementById("visitor-count") as HTMLDivElement;
+const voteUpBtn = document.getElementById("vote-up-btn") as HTMLButtonElement;
+const voteDownBtn = document.getElementById("vote-down-btn") as HTMLButtonElement;
+const voteScoreEl = document.getElementById("vote-score") as HTMLSpanElement;
+const guestbookBtn = document.getElementById("guestbook-btn") as HTMLButtonElement;
+const karmaGauge = document.getElementById("karma-gauge") as HTMLDivElement;
+const karmaLabel = document.getElementById("karma-label") as HTMLSpanElement;
+const karmaBar = document.getElementById("karma-bar") as HTMLDivElement;
 
 let currentCompanyId: string | null = null;
+let focusedColleague: Colleague | null = null;
+let myVote: -1 | 0 | 1 = 0;
+
+const KARMA_MAX = 50;
 
 function formatDate(iso: string | null): string {
   if (!iso) return "";
@@ -31,11 +44,63 @@ function formatDate(iso: string | null): string {
   return d.toLocaleDateString("fr-FR", { year: "numeric", month: "long", day: "numeric" });
 }
 
+function updateVoteButtons(vote: -1 | 0 | 1, score: number) {
+  myVote = vote;
+  voteScoreEl.textContent = String(score);
+  voteUpBtn.classList.toggle("active-up", vote === 1);
+  voteDownBtn.classList.toggle("active-down", vote === -1);
+}
+
+async function loadMyVote(colleague: Colleague) {
+  updateVoteButtons(0, colleague.voteScore);
+  try {
+    const v = await getMyVote(colleague.id);
+    updateVoteButtons(v, colleague.voteScore);
+  } catch {
+    /* pas connecté ou réseau — boutons neutres */
+  }
+}
+
+async function handleVote(value: 1 | -1) {
+  if (!focusedColleague) return;
+  const next: -1 | 0 | 1 = myVote === value ? 0 : value;
+  try {
+    const { voteScore } = await voteColleague(focusedColleague.id, next);
+    focusedColleague = { ...focusedColleague, voteScore };
+    updateVoteButtons(next, voteScore);
+  } catch (err) {
+    console.error("Erreur vote:", err);
+  }
+}
+
+/** Affiche la jauge de karma du cimetière (issue #3). */
+function updateKarma(karma: number) {
+  const capped = Math.max(-KARMA_MAX, Math.min(KARMA_MAX, karma));
+  const norm = (capped + KARMA_MAX) / (2 * KARMA_MAX); // 0..1
+  const pct = Math.round(norm * 100);
+  karmaBar.style.width = `${pct}%`;
+  if (karma >= 10) {
+    karmaBar.style.backgroundColor = "#b9a06b";
+    karmaLabel.textContent = `Paradis ★`;
+  } else if (karma <= -10) {
+    karmaBar.style.backgroundColor = "#d4796a";
+    karmaLabel.textContent = `Enfer ☠`;
+  } else {
+    karmaBar.style.backgroundColor = "rgba(200,200,200,0.5)";
+    karmaLabel.textContent = "Neutre";
+  }
+  karmaGauge.classList.remove("hidden");
+}
+
 export function setupHud(
   cemetery: Cemetery,
   handlers: { onBack: () => void; onBackToRoad: () => void; onColleagueAdded: () => void },
 ) {
-  cemetery.onFocusChange((colleague) => showGrave(colleague));
+  cemetery.onFocusChange((colleague) => {
+    focusedColleague = colleague;
+    showGrave(colleague);
+    if (colleague) void loadMyVote(colleague);
+  });
 
   // Invite « Appuyez sur E pour entrer » à l'approche d'un portail (hub, issue #5).
   cemetery.onPortalChange((portal) => {
@@ -74,6 +139,16 @@ export function setupHud(
   };
   timeSelect.addEventListener("change", applyAmbiance);
   seasonSelect.addEventListener("change", applyAmbiance);
+
+  voteUpBtn.addEventListener("click", () => { void handleVote(1); });
+  voteDownBtn.addEventListener("click", () => { void handleVote(-1); });
+
+  guestbookBtn.addEventListener("click", () => {
+    if (!focusedColleague) return;
+    const wasLocked = cemetery.isLocked;
+    if (wasLocked) cemetery.unlock();
+    void openGuestbook(focusedColleague.id, focusedColleague.name);
+  });
 
   addGraveBtn.addEventListener("click", () => {
     if (!currentCompanyId) return;
@@ -117,6 +192,9 @@ function showGrave(colleague: Colleague | null) {
   graveName.textContent = colleague.name;
   graveDates.textContent = colleague.departedOn ? `Parti·e le ${formatDate(colleague.departedOn)}` : "";
   graveQuote.textContent = `« ${colleague.quote} »`;
+  voteScoreEl.textContent = String(colleague.voteScore);
+  voteUpBtn.classList.remove("active-up");
+  voteDownBtn.classList.remove("active-down");
   gravePanel.classList.remove("hidden");
 }
 
@@ -126,12 +204,13 @@ function setCemeteryButtons(visible: boolean) {
   backRoadBtn.classList.toggle("hidden", !visible);
 }
 
-export function showHud(companyName: string, companyId: string) {
+export function showHud(companyName: string, companyId: string, karma: number) {
   currentCompanyId = companyId;
   nameEl.textContent = companyName;
   lockPromptText.textContent = "Cliquez pour entrer dans le cimetière";
   setCemeteryButtons(true);
   portalPrompt.classList.add("hidden");
+  updateKarma(karma);
   hudEl.classList.remove("hidden");
 }
 
@@ -141,6 +220,7 @@ export function showHubHud(cemeteryCount: number) {
   nameEl.textContent = `La route des cimetières · ${cemeteryCount} entrée${cemeteryCount > 1 ? "s" : ""}`;
   lockPromptText.textContent = "Cliquez pour parcourir la route";
   setCemeteryButtons(false);
+  karmaGauge.classList.add("hidden");
   hudEl.classList.remove("hidden");
 }
 
@@ -149,5 +229,6 @@ export function hideHud() {
   ambiancePanel.classList.add("hidden");
   gravePanel.classList.add("hidden");
   portalPrompt.classList.add("hidden");
+  karmaGauge.classList.add("hidden");
   visitorCount.textContent = "";
 }

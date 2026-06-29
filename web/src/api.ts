@@ -1,5 +1,5 @@
 import { createAuthClient } from "better-auth/client";
-import type { Company, CompanyDetail, Colleague, User } from "./types.ts";
+import type { Company, CompanyDetail, Colleague, GraveMessage, User } from "./types.ts";
 
 export const authClient = createAuthClient({
   basePath: "/api/auth",
@@ -75,4 +75,44 @@ export async function createColleague(
     body: JSON.stringify(payload),
   });
   return json<Colleague>(res);
+}
+
+// --- Livre d'or (#9) ---
+
+export async function getGraveMessages(colleagueId: string): Promise<GraveMessage[]> {
+  return json<GraveMessage[]>(
+    await fetch(`/api/colleagues/${colleagueId}/messages`, { credentials: "include" }),
+  );
+}
+
+export async function addGraveMessage(colleagueId: string, content: string): Promise<GraveMessage> {
+  const res = await fetch(`/api/colleagues/${colleagueId}/messages`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ content }),
+  });
+  return json<GraveMessage>(res);
+}
+
+// --- Votes (#2) ---
+
+export async function getMyVote(colleagueId: string): Promise<-1 | 0 | 1> {
+  const data = await json<{ value: -1 | 0 | 1 }>(
+    await fetch(`/api/colleagues/${colleagueId}/vote`, { credentials: "include" }),
+  );
+  return data.value;
+}
+
+export async function voteColleague(
+  colleagueId: string,
+  value: -1 | 0 | 1,
+): Promise<{ voteScore: number }> {
+  const res = await fetch(`/api/colleagues/${colleagueId}/vote`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ value }),
+  });
+  return json<{ voteScore: number }>(res);
 }

@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, integer, real, date, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, varchar, text, integer, real, date, timestamp, index, unique } from "drizzle-orm/pg-core";
 import { user } from "./auth-schema.ts";
 
 // Ré-export des tables Better Auth pour que drizzle-kit les inclue dans les migrations.
@@ -34,5 +34,43 @@ export const colleagues = pgTable(
   (table) => [index("colleagues_company_idx").on(table.companyId)],
 );
 
+// Livre d'or (#9) : messages laissés sur une tombe par les visiteurs.
+export const graveMessages = pgTable(
+  "grave_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    colleagueId: uuid("colleague_id")
+      .notNull()
+      .references(() => colleagues.id, { onDelete: "cascade" }),
+    authorId: text("author_id").references(() => user.id, { onDelete: "set null" }),
+    authorName: varchar("author_name", { length: 160 }).notNull(),
+    content: text("content").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("grave_messages_colleague_idx").on(table.colleagueId)],
+);
+
+// Votes (#2) : upvote/downvote d'une tombe (1 vote par utilisateur par tombe).
+export const graveVotes = pgTable(
+  "grave_votes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    colleagueId: uuid("colleague_id")
+      .notNull()
+      .references(() => colleagues.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    value: integer("value").notNull(), // +1 ou -1
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("grave_votes_colleague_idx").on(table.colleagueId),
+    unique("grave_votes_unique").on(table.colleagueId, table.userId),
+  ],
+);
+
 export type Company = typeof companies.$inferSelect;
 export type Colleague = typeof colleagues.$inferSelect;
+export type GraveMessage = typeof graveMessages.$inferSelect;
+export type GraveVote = typeof graveVotes.$inferSelect;

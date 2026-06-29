@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { asc, eq } from "drizzle-orm";
+import { asc, eq, sql } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import { colleagues, companies } from "../db/schema.ts";
 import { requireUser } from "../session.ts";
@@ -30,7 +30,10 @@ export async function colleagueRoutes(app: FastifyInstance) {
       .where(eq(colleagues.companyId, id))
       .orderBy(asc(colleagues.createdAt));
 
-    return { company, colleagues: rows };
+    // Karma = somme des voteScores (issue #3) pour l'affichage de la jauge dans le HUD.
+    const karma = rows.reduce((sum, c) => sum + c.voteScore, 0);
+
+    return { company, colleagues: rows, karma };
   });
 
   // Ajout d'un collègue (auth requise).

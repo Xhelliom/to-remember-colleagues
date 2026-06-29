@@ -69,7 +69,9 @@ describe.skipIf(!online)("API métier (avec base de données)", () => {
     expect(companyId).toBeTruthy();
   });
 
-  it("ajoute un collègue puis le retrouve dans la liste", async () => {
+  let colleagueId = "";
+
+  it("ajoute un collègue puis le retrouve dans la liste avec le karma", async () => {
     const add = await app.inject({
       method: "POST",
       url: `/api/companies/${companyId}/colleagues`,
@@ -77,6 +79,7 @@ describe.skipIf(!online)("API métier (avec base de données)", () => {
       payload: { name: "Jean Test", quote: "Dernier commit poussé.", departedOn: "2024-05-01" },
     });
     expect(add.statusCode).toBe(201);
+    colleagueId = add.json().id as string;
 
     const list = await app.inject({ method: "GET", url: `/api/companies/${companyId}/colleagues` });
     expect(list.statusCode).toBe(200);
@@ -84,5 +87,72 @@ describe.skipIf(!online)("API métier (avec base de données)", () => {
     expect(body.colleagues).toHaveLength(1);
     expect(body.colleagues[0].name).toBe("Jean Test");
     expect(body.colleagues[0].quote).toContain("commit");
+    // Karma inclus dans la réponse (issue #3).
+    expect(typeof body.karma).toBe("number");
+  });
+
+  it("vote upvote sur une tombe, met à jour le voteScore (issue #2)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/colleagues/${colleagueId}/vote`,
+      headers: { cookie },
+      payload: { value: 1 },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().voteScore).toBe(1);
+  });
+
+  it("récupère le vote actuel de l'utilisateur (issue #2)", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/colleagues/${colleagueId}/vote`,
+      headers: { cookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().value).toBe(1);
+  });
+
+  it("retire le vote en renvoyant 0, voteScore revient à 0 (issue #2)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/colleagues/${colleagueId}/vote`,
+      headers: { cookie },
+      payload: { value: 0 },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().voteScore).toBe(0);
+  });
+
+  it("laisse un message dans le livre d'or (issue #9)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/colleagues/${colleagueId}/messages`,
+      headers: { cookie },
+      payload: { content: "On ne t'oubliera jamais !" },
+    });
+    expect(res.statusCode).toBe(201);
+    const msg = res.json();
+    expect(msg.authorName).toBe("Testeur");
+    expect(msg.content).toBe("On ne t'oubliera jamais !");
+  });
+
+  it("liste les messages du livre d'or (issue #9)", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/colleagues/${colleagueId}/messages`,
+    });
+    expect(res.statusCode).toBe(200);
+    const messages = res.json() as { authorName: string; content: string }[];
+    expect(messages).toHaveLength(1);
+    expect(messages[0].authorName).toBe("Testeur");
+  });
+
+  it("refuse un message sans authentification (401, issue #9)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/colleagues/${colleagueId}/messages`,
+      payload: { content: "Tentative anonyme" },
+    });
+    expect(res.statusCode).toBe(401);
   });
 });

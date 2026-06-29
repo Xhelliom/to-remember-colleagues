@@ -36,4 +36,14 @@ export type CompanyDetail = {
   // La route détail renvoie la ligne brute du cimetière (sans karma/statut agrégés).
   company: { id: string; name: string; slug: string; description: string | null; createdAt: string };
   colleagues: Colleague[];
+  /** Karma = somme des voteScores des tombes (issue #3). */
+  karma: number;
+};
+
+/** Message laissé dans le livre d'or d'une tombe (issue #9). */
+export type GraveMessage = {
+  id: string;
+  authorName: string;
+  content: string;
+  createdAt: string;
 };
