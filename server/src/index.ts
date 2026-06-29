@@ -1,6 +1,6 @@
 import { buildApp } from "./app.ts";
 
-const DEFAULT_PORT = 3000;
+const DEFAULT_PORT = 3300;
 const port = Number(process.env.PORT ?? DEFAULT_PORT);
 
 const app = await buildApp({ logger: true });
