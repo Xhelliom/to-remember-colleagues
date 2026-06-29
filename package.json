@@ -22,7 +22,7 @@
     "seed": "pnpm --filter server seed",
     "dev:server": "pnpm --filter server dev",
     "dev:web": "pnpm --filter web dev",
-    "dev": "pnpm run --parallel \"/dev:(server|web)/\"",
+    "dev": "pnpm --parallel --filter server --filter web dev",
     "build": "pnpm --filter web build && pnpm --filter server build",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm -r test",
