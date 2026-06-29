@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { Colleague } from "./types.ts";
+import type { Colleague, OfferingCounts } from "./types.ts";
 import type { GraveAxes } from "./graveAxes.ts";
 
 /** Générateur pseudo-aléatoire déterministe (mulberry32) à partir d'une graine. */
@@ -206,8 +206,77 @@ export function createGrave(colleague: Colleague, graveHex: number, axes: GraveA
   // Axe 3 — décor d'entretien, indépendant des deux autres axes.
   decorateMaintenance(group, maintenance, width, depth, rand);
 
+  // Offrandes déposées sur la tombe (issue #7).
+  if (colleague.offeringCounts) {
+    decorateOfferings(group, colleague.offeringCounts, colleague.graveSeed);
+  }
+
   group.userData.colleague = colleague;
   return group;
+}
+
+const CANDLE_COLOR = 0xf5e6c8;
+const FLAME_COLOR = 0xff7700;
+const STONE_OFFERING_COLOR = 0x8a8a8a;
+const PETAL_PALETTE = [0xe8556d, 0xf2c14e, 0xffffff, 0xc77dff, 0xff8fab];
+const MAX_VISIBLE_OFFERINGS = 5;
+const OFFERING_SEED_SALT = 0xdeadbeef;
+
+/**
+ * Dépose les offrandes (bougies, fleurs, cailloux) en arc devant la tombe (issue #7).
+ * Graine indépendante de l'axe entretien pour ne pas interférer.
+ */
+function decorateOfferings(group: THREE.Group, counts: OfferingCounts, graveSeed: number): void {
+  const rand = seededRandom(graveSeed ^ OFFERING_SEED_SALT);
+  const z = 0.45; // devant le socle
+
+  const n = (c: number) => Math.min(c, MAX_VISIBLE_OFFERINGS);
+  const x = (i: number, total: number) => (total <= 1 ? 0 : -0.35 + (i / (total - 1)) * 0.7);
+
+  // Cailloux : petits galets plats alignés.
+  const stoneTotal = n(counts.stone);
+  const stoneMat = new THREE.MeshStandardMaterial({ color: STONE_OFFERING_COLOR, roughness: 0.8 });
+  for (let i = 0; i < stoneTotal; i++) {
+    const s = new THREE.Mesh(new THREE.SphereGeometry(0.04 + rand() * 0.025, 5, 4), stoneMat);
+    s.scale.y = 0.45;
+    s.position.set(x(i, stoneTotal), 0.02, z + rand() * 0.08);
+    group.add(s);
+  }
+
+  // Bougies : cylindres blancs-crème avec flamme émissive.
+  const candleTotal = n(counts.candle);
+  const candleMat = new THREE.MeshStandardMaterial({ color: CANDLE_COLOR, roughness: 0.6 });
+  const flameMat = new THREE.MeshStandardMaterial({ color: FLAME_COLOR, emissive: FLAME_COLOR, emissiveIntensity: 1.2, roughness: 0.1 });
+  for (let i = 0; i < candleTotal; i++) {
+    const h = 0.12 + rand() * 0.06;
+    const cx = x(i, candleTotal) + (rand() - 0.5) * 0.08;
+    const cz = z + 0.12 + rand() * 0.08;
+    const candle = new THREE.Mesh(new THREE.CylinderGeometry(0.015, 0.015, h, 5), candleMat);
+    candle.position.set(cx, h / 2, cz);
+    group.add(candle);
+    const flame = new THREE.Mesh(new THREE.SphereGeometry(0.022, 4, 4), flameMat);
+    flame.position.set(cx, h + 0.02, cz);
+    group.add(flame);
+  }
+
+  // Fleurs : petites icosphères colorées sur tiges fines.
+  const flowerTotal = n(counts.flower);
+  const stemMat = new THREE.MeshStandardMaterial({ color: 0x3f6b32, roughness: 1 });
+  for (let i = 0; i < flowerTotal; i++) {
+    const fh = 0.14 + rand() * 0.1;
+    const fx = x(i, flowerTotal) + (rand() - 0.5) * 0.1;
+    const fz = z + 0.22 + rand() * 0.1;
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.01, 0.01, fh, 4), stemMat);
+    stem.position.set(fx, fh / 2, fz);
+    group.add(stem);
+    const petalMat = new THREE.MeshStandardMaterial({
+      color: PETAL_PALETTE[Math.floor(rand() * PETAL_PALETTE.length)],
+      roughness: 0.7,
+    });
+    const flower = new THREE.Mesh(new THREE.IcosahedronGeometry(0.045, 0), petalMat);
+    flower.position.set(fx, fh + 0.01, fz);
+    group.add(flower);
+  }
 }
 
 /**

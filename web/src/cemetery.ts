@@ -181,6 +181,13 @@ export class Cemetery {
     this.layoutGraves();
   }
 
+  updateColleague(colleague: Colleague) {
+    if (!this.detail) return;
+    const idx = this.detail.colleagues.findIndex((c) => c.id === colleague.id);
+    if (idx >= 0) this.detail.colleagues[idx] = colleague;
+    this.layoutGraves();
+  }
+
   setAmbianceSettings(time: TimeSetting, season: SeasonSetting) {
     this.timeSetting = time;
     this.seasonSetting = season;

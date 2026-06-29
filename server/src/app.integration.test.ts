@@ -197,4 +197,50 @@ describe.skipIf(!online)("API métier (avec base de données)", () => {
     });
     expect(add.statusCode).toBe(201);
   });
+
+  it("dépose une offrande et récupère le compteur mis à jour (issue #7)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/colleagues/${colleagueId}/offerings`,
+      headers: { cookie },
+      payload: { type: "candle" },
+    });
+    expect(res.statusCode).toBe(201);
+    const counts = res.json() as { flower: number; candle: number; stone: number };
+    expect(counts.candle).toBe(1);
+    expect(counts.flower).toBe(0);
+    expect(counts.stone).toBe(0);
+  });
+
+  it("liste les offrandes actives d'une tombe (issue #7)", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/colleagues/${colleagueId}/offerings`,
+    });
+    expect(res.statusCode).toBe(200);
+    const list = res.json() as { type: string; authorName: string }[];
+    expect(list.length).toBeGreaterThanOrEqual(1);
+    expect(list[0].type).toBe("candle");
+    expect(list[0].authorName).toBe("Testeur");
+  });
+
+  it("inclut les comptes d'offrandes dans la liste des collègues (issue #7)", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/companies/${companyId}/colleagues`,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { colleagues: { id: string; offeringCounts: { candle: number } }[] };
+    const found = body.colleagues.find((c) => c.id === colleagueId);
+    expect(found?.offeringCounts.candle).toBeGreaterThanOrEqual(1);
+  });
+
+  it("refuse une offrande sans authentification (401, issue #7)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/colleagues/${colleagueId}/offerings`,
+      payload: { type: "flower" },
+    });
+    expect(res.statusCode).toBe(401);
+  });
 });

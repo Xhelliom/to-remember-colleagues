@@ -55,6 +55,14 @@
   transition: width 0.5s, background-color 0.5s;
 }
 
+/* --- Offrandes (issue #7) --- */
+.offering-counts {
+  margin-top: 8px;
+  font-size: 0.85rem;
+  color: var(--muted);
+  letter-spacing: 0.02em;
+}
+
 /* --- Guestbook (issue #9) --- */
 .guestbook-overlay {
   z-index: 35;

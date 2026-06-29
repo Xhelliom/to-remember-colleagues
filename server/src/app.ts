@@ -5,6 +5,7 @@ import { companyRoutes } from "./routes/companies.ts";
 import { colleagueRoutes } from "./routes/colleagues.ts";
 import { messageRoutes } from "./routes/messages.ts";
 import { voteRoutes } from "./routes/votes.ts";
+import { offeringRoutes } from "./routes/offerings.ts";
 import { realtimeRoutes } from "./realtime.ts";
 
 const DEFAULT_CORS_ORIGIN = "http://localhost:5173";
@@ -59,6 +60,7 @@ export async function buildApp(options: { logger?: boolean } = {}): Promise<Fast
   await app.register(colleagueRoutes);
   await app.register(messageRoutes);
   await app.register(voteRoutes);
+  await app.register(offeringRoutes);
   await app.register(realtimeRoutes);
 
   app.get("/api/health", async () => ({ status: "ok" }));

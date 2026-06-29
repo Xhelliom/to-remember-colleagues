@@ -1,7 +1,7 @@
 import "./social.css";
 import type { Cemetery } from "../cemetery.ts";
-import { createColleague, getMyVote, voteColleague } from "../api.ts";
-import type { Colleague } from "../types.ts";
+import { addOffering, createColleague, getMyVote, voteColleague } from "../api.ts";
+import type { Colleague, OfferingCounts } from "../types.ts";
 import type { SeasonSetting, TimeSetting } from "../ambiance.ts";
 import { openDialog } from "./dialog.ts";
 import { openGuestbook } from "./guestbook.ts";
@@ -27,6 +27,8 @@ const voteUpBtn = document.getElementById("vote-up-btn") as HTMLButtonElement;
 const voteDownBtn = document.getElementById("vote-down-btn") as HTMLButtonElement;
 const voteScoreEl = document.getElementById("vote-score") as HTMLSpanElement;
 const guestbookBtn = document.getElementById("guestbook-btn") as HTMLButtonElement;
+const offeringBtn = document.getElementById("offering-btn") as HTMLButtonElement;
+const offeringCountsEl = document.getElementById("offering-counts") as HTMLDivElement;
 const karmaGauge = document.getElementById("karma-gauge") as HTMLDivElement;
 const karmaLabel = document.getElementById("karma-label") as HTMLSpanElement;
 const karmaBar = document.getElementById("karma-bar") as HTMLDivElement;
@@ -72,6 +74,24 @@ async function handleVote(value: 1 | -1) {
     updateVoteButtons(next, voteScore);
   } catch (err) {
     console.error("Erreur vote:", err);
+  }
+}
+
+function formatOfferingCounts(counts: OfferingCounts): string {
+  const parts: string[] = [];
+  if (counts.flower > 0) parts.push(`🌸 ${counts.flower} fleur${counts.flower > 1 ? "s" : ""}`);
+  if (counts.candle > 0) parts.push(`🕯 ${counts.candle} bougie${counts.candle > 1 ? "s" : ""}`);
+  if (counts.stone > 0) parts.push(`🪨 ${counts.stone} caillou${counts.stone > 1 ? "x" : ""}`);
+  return parts.join(" · ");
+}
+
+function updateOfferingCounts(counts: OfferingCounts) {
+  const text = formatOfferingCounts(counts);
+  if (text) {
+    offeringCountsEl.textContent = text;
+    offeringCountsEl.classList.remove("hidden");
+  } else {
+    offeringCountsEl.classList.add("hidden");
   }
 }
 
@@ -158,6 +178,36 @@ function setupGraveActions(cemetery: Cemetery, handlers: { onColleagueAdded: () 
     });
   });
 
+  offeringBtn.addEventListener("click", () => {
+    if (!focusedColleague) return;
+    const colleague = focusedColleague;
+    withUnlocked(cemetery, undefined, () => {
+      openDialog(
+        "Déposer une offrande",
+        [
+          {
+            name: "type",
+            label: "Type d'offrande",
+            type: "select",
+            required: true,
+            options: [
+              { value: "flower", label: "🌸 Fleur (7 jours)" },
+              { value: "candle", label: "🕯 Bougie (24 heures)" },
+              { value: "stone", label: "🪨 Caillou (permanent)" },
+            ],
+          },
+        ],
+        async (values) => {
+          const counts = await addOffering(colleague.id, values.type as "flower" | "candle" | "stone");
+          const updated = { ...colleague, offeringCounts: counts };
+          focusedColleague = updated;
+          cemetery.updateColleague(updated);
+          updateOfferingCounts(counts);
+        },
+      );
+    });
+  });
+
   addGraveBtn.addEventListener("click", () => {
     if (!currentCompanyId) return;
     withUnlocked(cemetery, undefined, () => {
@@ -207,6 +257,7 @@ export function setupHud(
 function showGrave(colleague: Colleague | null) {
   if (!colleague) {
     gravePanel.classList.add("hidden");
+    offeringCountsEl.classList.add("hidden");
     return;
   }
   graveName.textContent = colleague.name;
@@ -215,6 +266,7 @@ function showGrave(colleague: Colleague | null) {
   voteScoreEl.textContent = String(colleague.voteScore);
   voteUpBtn.classList.remove("active-up");
   voteDownBtn.classList.remove("active-down");
+  updateOfferingCounts(colleague.offeringCounts);
   gravePanel.classList.remove("hidden");
 }
 

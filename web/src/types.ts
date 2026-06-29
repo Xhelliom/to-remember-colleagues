@@ -19,6 +19,10 @@ export type Company = {
   status: CompanyStatus;
 };
 
+export type OfferingType = "flower" | "candle" | "stone";
+
+export type OfferingCounts = { flower: number; candle: number; stone: number };
+
 export type Colleague = {
   id: string;
   name: string;
@@ -30,6 +34,8 @@ export type Colleague = {
   /** Axe 3 (issue #25) : entretien, 0 = négligé, 1 = impeccablement fleuri. */
   maintenance: number;
   createdAt: string;
+  /** Offrandes actives déposées sur la tombe (issue #7). */
+  offeringCounts: OfferingCounts;
 };
 
 export type CompanyDetail = {

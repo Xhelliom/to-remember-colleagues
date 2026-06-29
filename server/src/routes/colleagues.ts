@@ -5,6 +5,7 @@ import { colleagues, companies } from "../db/schema.ts";
 import { requireUser } from "../session.ts";
 import { newGraveSeed } from "../lib/random.ts";
 import { ID_PARAM_SCHEMA } from "../lib/schemas.ts";
+import { activeOfferingCounts } from "../lib/offerings.ts";
 
 export async function colleagueRoutes(app: FastifyInstance) {
   // Liste des collègues (tombes) d'un cimetière.
@@ -44,7 +45,15 @@ export async function colleagueRoutes(app: FastifyInstance) {
     // Karma = somme des voteScores (issue #3) pour l'affichage de la jauge dans le HUD.
     const karma = rows.reduce((sum, c) => sum + c.voteScore, 0);
 
-    return { company, colleagues: rows, karma };
+    // Offrandes actives par tombe (issue #7).
+    const now = new Date();
+    const counts = await activeOfferingCounts(rows.map((r) => r.id), now);
+    const withOfferings = rows.map((r) => ({
+      ...r,
+      offeringCounts: counts.get(r.id) ?? { flower: 0, candle: 0, stone: 0 },
+    }));
+
+    return { company, colleagues: withOfferings, karma };
   });
 
   // Ajout d'un collègue (auth requise).

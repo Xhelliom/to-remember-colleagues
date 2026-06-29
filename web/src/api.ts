@@ -1,5 +1,5 @@
 import { createAuthClient } from "better-auth/client";
-import type { Company, CompanyDetail, Colleague, GraveMessage, User } from "./types.ts";
+import type { Company, CompanyDetail, Colleague, GraveMessage, OfferingCounts, OfferingType, User } from "./types.ts";
 
 export const authClient = createAuthClient({
   basePath: "/api/auth",
@@ -111,6 +111,18 @@ export async function addGraveMessage(colleagueId: string, content: string): Pro
     body: JSON.stringify({ content }),
   });
   return json<GraveMessage>(res);
+}
+
+// --- Offrandes éphémères (#7) ---
+
+export async function addOffering(colleagueId: string, type: OfferingType): Promise<OfferingCounts> {
+  const res = await fetch(`/api/colleagues/${colleagueId}/offerings`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify({ type }),
+  });
+  return json<OfferingCounts>(res);
 }
 
 // --- Votes (#2) ---

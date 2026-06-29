@@ -72,7 +72,26 @@ export const graveVotes = pgTable(
   ],
 );
 
+// Offrandes éphémères déposées sur une tombe (issue #7).
+export const graveOfferings = pgTable(
+  "grave_offerings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    colleagueId: uuid("colleague_id")
+      .notNull()
+      .references(() => colleagues.id, { onDelete: "cascade" }),
+    userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
+    authorName: varchar("author_name", { length: 160 }).notNull(),
+    // 'flower' (7j) | 'candle' (24h) | 'stone' (permanent)
+    type: varchar("type", { length: 20 }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [index("grave_offerings_colleague_idx").on(table.colleagueId)],
+);
+
 export type Company = typeof companies.$inferSelect;
 export type Colleague = typeof colleagues.$inferSelect;
 export type GraveMessage = typeof graveMessages.$inferSelect;
 export type GraveVote = typeof graveVotes.$inferSelect;
+export type GraveOffering = typeof graveOfferings.$inferSelect;
