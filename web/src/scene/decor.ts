@@ -54,8 +54,11 @@ export class Decor {
 
   private clear() {
     this.group.traverse((obj) => {
-      const mesh = obj as THREE.Mesh;
-      if (mesh.geometry) mesh.geometry.dispose();
+      if (obj instanceof THREE.Mesh || obj instanceof THREE.Points) {
+        obj.geometry.dispose();
+        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+        mats.forEach((m) => m.dispose());
+      }
     });
     this.group.clear();
     this.particles = null;

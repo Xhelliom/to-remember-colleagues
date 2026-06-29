@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { asc, eq, sql } from "drizzle-orm";
+import { and, asc, eq, isNull, sql } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import { companies, colleagues, companyMembers, graveOfferings } from "../db/schema.ts";
 import { requireUser } from "../session.ts";
@@ -82,7 +82,7 @@ export async function companyRoutes(app: FastifyInstance) {
     return reply.code(201).send(created);
   });
 
-  // Fermeture d'un cimetière (issue #6) : plus d'ajout de tombe possible.
+  // Fermeture d'un cimetière (issue #6) : réservée au créateur.
   app.post(
     "/api/companies/:id/close",
     { schema: { params: ID_PARAM_SCHEMA } },
@@ -90,12 +90,21 @@ export async function companyRoutes(app: FastifyInstance) {
       const user = await requireUser(request, reply);
       if (!user) return;
       const { id } = request.params as { id: string };
-      const [row] = await db
+      const [company] = await db
+        .select({ createdBy: companies.createdBy, closedAt: companies.closedAt })
+        .from(companies)
+        .where(eq(companies.id, id))
+        .limit(1);
+      if (!company) return reply.code(404).send({ error: "Cimetière introuvable." });
+      if (company.createdBy !== user.id) return reply.code(403).send({ error: "Vous n'êtes pas le créateur de ce cimetière." });
+      if (company.closedAt) return reply.code(409).send({ error: "Ce cimetière est déjà fermé." });
+      // UPDATE atomique : évite la race TOCTOU entre SELECT et UPDATE.
+      const [updated] = await db
         .update(companies)
         .set({ closedAt: new Date() })
-        .where(eq(companies.id, id))
+        .where(and(eq(companies.id, id), isNull(companies.closedAt)))
         .returning({ id: companies.id });
-      if (!row) return reply.code(404).send({ error: "Cimetière introuvable." });
+      if (!updated) return reply.code(409).send({ error: "Ce cimetière est déjà fermé." });
       return { closed: true };
     },
   );
