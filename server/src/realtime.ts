@@ -95,9 +95,11 @@ export async function realtimeRoutes(app: FastifyInstance) {
   });
 
   // Mise à jour de position d'un visiteur → relayée aux pairs du salon.
+  // logLevel "warn" : publiée à ~10 Hz par client, on n'inonde pas les logs info.
   app.post(
     "/api/rooms/:room/state",
     {
+      logLevel: "warn",
       schema: {
         body: {
           type: "object",
@@ -135,6 +137,7 @@ export async function realtimeRoutes(app: FastifyInstance) {
   app.post(
     "/api/rooms/:room/emote",
     {
+      logLevel: "warn",
       schema: {
         body: {
           type: "object",
