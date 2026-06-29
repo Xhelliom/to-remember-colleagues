@@ -3,7 +3,7 @@ import type { Colleague, Company, CompanyDetail } from "./types.ts";
 import { createGrave } from "./graves.ts";
 import { graveAxes } from "./graveAxes.ts";
 import { cemeteryLayout } from "./procedural.ts";
-import { buildHub, type Portal } from "./hub.ts";
+import { buildWorld, type WorldSlotWithCompany } from "./world.ts";
 import { Presence, type PeerState } from "./net.ts";
 import { makeAvatar, showEmote, tickEmote, type Avatar } from "./avatars.ts";
 import { getAmbiance, resolveSeasonKey, resolveTimeKey, type Ambiance, type SeasonSetting, type TimeSetting } from "./ambiance.ts";
@@ -18,20 +18,22 @@ const FAR = 400;
 const MAX_PIXEL_RATIO = 2;
 const MAX_DELTA = 0.05;
 const FOCUS_RADIUS = 3.2;
-const PORTAL_RADIUS = 3.8;
-const GROUND_RADIUS = 160;
-const GROUND_SEGMENTS = 64;
-const MIN_PLOT_HALF = 16;
-const ENTRANCE_OFFSET = 3;
+const LOAD_RADIUS = 24; // marge d'approche au-delà de la parcelle pour charger « à vue »
+const NEAR_MARGIN = 3; // tolérance pour se considérer « à » un cimetière (HUD, ajout)
+const GROUND_PAD = 60; // débord du sol autour des bornes du monde
+const PARTICLE_HALF = 60; // demi-étendue des particules d'ambiance autour du spawn
 const PEER_SMOOTH_RATE = 10; // lissage exponentiel de l'interpolation des pairs
-
-type Mode = "cemetery" | "hub";
+const WORLD_ROOM = "world"; // salon de présence unique du monde continu (#4)
 
 /** Pair distant : son avatar et la cible vers laquelle on interpole. */
 type Peer = { avatar: Avatar; tx: number; ty: number; tz: number; try_: number };
 
-/** Orchestrateur de la scène 3D : assemble ciel, lumières, décor, contrôles, tombes,
- *  le hub de cimetières (#5) et la présence des autres visiteurs (#4). */
+/** Charge les tombes d'un cimetière à la demande (injecté par main.ts). */
+type ColleagueLoader = (companyId: string) => Promise<CompanyDetail>;
+
+/** Orchestrateur de la scène 3D : assemble ciel, lumières, décor, contrôles, et
+ *  le MONDE continu — une allée sinueuse bordée de cimetières chargés « à vue »
+ *  (évolution de l'issue #5) avec la présence des autres visiteurs (#4). */
 export class Cemetery {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
@@ -43,26 +45,26 @@ export class Cemetery {
   private readonly decor = new Decor();
   private readonly controls: FirstPersonControls;
   private readonly groundMat = new THREE.MeshStandardMaterial({ roughness: 1 });
+  private readonly ground: THREE.Mesh;
   private readonly gravesGroup = new THREE.Group();
-  private readonly hubGroup = new THREE.Group();
+  private readonly worldGroup = new THREE.Group();
   private readonly peersGroup = new THREE.Group();
 
-  private mode: Mode = "cemetery";
-  private detail: CompanyDetail | null = null;
   private ambiance: Ambiance;
   private timeSetting: TimeSetting = "auto";
   private seasonSetting: SeasonSetting = "auto";
-  private plotHalf = MIN_PLOT_HALF;
   private running = false;
 
   private focusCb: (c: Colleague | null) => void = () => {};
   private focused: Colleague | null = null;
 
-  // Hub (#5).
-  private portals: Portal[] = [];
-  private nearPortal: Portal | null = null;
-  private portalCb: (p: Portal | null) => void = () => {};
-  private enterPortalCb: (company: Company) => void = () => {};
+  // Monde continu + chargement « à vue ».
+  private slots: WorldSlotWithCompany[] = [];
+  private loader: ColleagueLoader = async () => ({ company: {} as CompanyDetail["company"], colleagues: [] });
+  private readonly loaded = new Map<string, Colleague[]>(); // tombes déjà construites
+  private readonly requested = new Set<string>(); // déjà chargé ou en cours (anti-spam)
+  private nearestId: string | null = null;
+  private nearestCb: (c: Company | null) => void = () => {};
 
   // Présence multijoueur (#4).
   private readonly presence = new Presence();
@@ -84,12 +86,16 @@ export class Cemetery {
     this.scene.add(this.sky.mesh);
     this.scene.fog = new THREE.FogExp2(0xc7d6e6, 0.01);
     this.lighting.addTo(this.scene);
-    this.scene.add(this.gravesGroup, this.decor.group, this.hubGroup, this.peersGroup);
-    this.buildGround();
+    this.scene.add(this.gravesGroup, this.decor.group, this.worldGroup, this.peersGroup);
+
+    this.ground = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.groundMat);
+    this.ground.rotation.x = -Math.PI / 2;
+    this.ground.receiveShadow = true;
+    this.scene.add(this.ground);
 
     this.controls = new FirstPersonControls(this.camera, this.renderer.domElement);
     this.scene.add(this.controls.object);
-    this.controls.placeAt(0, this.plotHalf - ENTRANCE_OFFSET);
+    this.controls.placeAt(0, 0);
 
     this.ambiance = this.resolveAmbiance();
     this.applyAmbiance(this.ambiance);
@@ -107,16 +113,17 @@ export class Cemetery {
     this.controls.onLockChange(cb);
   }
 
-  onPortalChange(cb: (p: Portal | null) => void) {
-    this.portalCb = cb;
-  }
-
-  onEnterPortal(cb: (company: Company) => void) {
-    this.enterPortalCb = cb;
+  /** Cimetière le plus proche (où l'on se tient) ou null si l'on est sur la route. */
+  onNearestCemetery(cb: (c: Company | null) => void) {
+    this.nearestCb = cb;
   }
 
   onVisitorCount(cb: (n: number) => void) {
     this.countCb = cb;
+  }
+
+  setColleagueLoader(loader: ColleagueLoader) {
+    this.loader = loader;
   }
 
   setVisitorName(name: string) {
@@ -139,37 +146,35 @@ export class Cemetery {
     this.running = active;
   }
 
-  setCemetery(detail: CompanyDetail) {
-    this.mode = "cemetery";
-    this.clearHub();
-    this.detail = detail;
-    this.layoutGraves();
-    this.controls.setBound(this.plotHalf);
-    this.controls.placeAt(0, this.plotHalf - ENTRANCE_OFFSET);
-    this.connectRoom(`cem:${detail.company.id}`);
+  /**
+   * Entre dans le monde continu : route sinueuse + arches des cimetières.
+   * `spawnCompanyId` permet de réapparaître directement à l'entrée d'un
+   * cimetière (voyage rapide depuis le menu = futur spawn par chunk, #5).
+   */
+  enterWorld(companies: Company[], spawnCompanyId?: string) {
+    this.clearWorld();
+    const world = buildWorld(companies, this.ambiance);
+    this.slots = world.slots;
+    this.worldGroup.add(world.group);
+    this.resizeGround(world.bounds);
+    this.controls.setBoundsRect(world.bounds);
+
+    const spawn = spawnCompanyId ? this.slots.find((s) => s.id === spawnCompanyId)?.entrance : undefined;
+    const start = spawn ?? world.start;
+    this.controls.placeAt(start.x, start.z);
+
+    this.decor.build(this.ambiance, PARTICLE_HALF, { structures: false });
+    this.connectRoom(WORLD_ROOM);
+    this.updateStreaming(); // charge ce qui est déjà à portée du spawn
   }
 
-  /** Entre dans le hub : route + portails de tous les cimetières (issue #5). */
-  enterHub(companies: Company[]) {
-    this.mode = "hub";
-    this.detail = null;
-    this.gravesGroup.clear();
-    this.clearHub();
-
-    const hub = buildHub(companies);
-    this.portals = hub.portals;
-    this.hubGroup.add(hub.group);
-    this.plotHalf = Math.max(hub.bounds.maxX - hub.bounds.minX, hub.bounds.maxZ - hub.bounds.minZ);
-    this.controls.setBoundsRect(hub.bounds);
-    this.controls.placeAt(hub.start.x, hub.start.z);
-    this.decor.build(this.ambiance, this.plotHalf, { structures: false });
-    this.connectRoom("hub");
-  }
-
-  addColleague(colleague: Colleague) {
-    if (!this.detail) return;
-    this.detail.colleagues.push(colleague);
-    this.layoutGraves();
+  /** Ajoute un collègue au cimetière où l'on se tient et reconstruit ses tombes. */
+  addColleague(companyId: string, colleague: Colleague) {
+    const list = this.loaded.get(companyId);
+    if (!list) return; // pas encore chargé : apparaîtra à l'approche
+    list.push(colleague);
+    const slot = this.slots.find((s) => s.id === companyId);
+    if (slot) this.buildCemeteryGraves(slot, list);
   }
 
   setAmbianceSettings(time: TimeSetting, season: SeasonSetting) {
@@ -177,11 +182,16 @@ export class Cemetery {
     this.seasonSetting = season;
     const next = this.resolveAmbiance();
     // La teinte de base des pierres dépend de la saison → on reconstruit les
-    // tombes quand elle change (les 3 axes #25 sont recalculés au passage).
+    // tombes chargées quand elle change (les 3 axes #25 sont recalculés au passage).
     const graveColorChanged = next.graveColor !== this.ambiance.graveColor;
     this.ambiance = next;
     this.applyAmbiance(next);
-    if (graveColorChanged && this.mode === "cemetery") this.layoutGraves();
+    if (graveColorChanged) {
+      for (const slot of this.slots) {
+        const list = this.loaded.get(slot.id);
+        if (list) this.buildCemeteryGraves(slot, list);
+      }
+    }
   }
 
   /** Quitte tout salon de présence (retour menu / déconnexion, issue #4). */
@@ -197,11 +207,10 @@ export class Cemetery {
     this.presence.emote(name);
   }
 
-  private buildGround() {
-    const ground = new THREE.Mesh(new THREE.CircleGeometry(GROUND_RADIUS, GROUND_SEGMENTS), this.groundMat);
-    ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
-    this.scene.add(ground);
+  private resizeGround(b: { minX: number; maxX: number; minZ: number; maxZ: number }) {
+    this.ground.geometry.dispose();
+    this.ground.geometry = new THREE.PlaneGeometry(b.maxX - b.minX + GROUND_PAD * 2, b.maxZ - b.minZ + GROUND_PAD * 2);
+    this.ground.position.set((b.minX + b.maxX) / 2, 0, (b.minZ + b.maxZ) / 2);
   }
 
   private resolveAmbiance(): Ambiance {
@@ -218,31 +227,85 @@ export class Cemetery {
     fog.density = a.fogDensity;
     this.lighting.apply(a);
     this.groundMat.color.setHex(a.groundColor);
-    // Enceinte/arbres seulement en cimetière ; le hub ne garde que les particules.
-    this.decor.build(a, this.plotHalf, { structures: this.mode === "cemetery" });
+    // La forêt/les arches sont portées par world.ts ; ici, seulement les particules.
+    this.decor.build(a, PARTICLE_HALF, { structures: false });
   }
 
-  private layoutGraves() {
-    this.gravesGroup.clear();
-    if (!this.detail) return;
-    const list = this.detail.colleagues;
+  // ---- Monde continu : chargement « à vue » ----
 
-    // Plan procédural déterministe, seedé sur l'id de l'organisation (issue #5).
-    const layout = cemeteryLayout(this.detail.company.id, list.length);
-    this.plotHalf = layout.plotHalf;
-    this.controls.setBound(this.plotHalf);
+  private updateStreaming() {
+    const cam = this.camera.position;
+    let nearestId: string | null = null;
+    let best = Infinity;
+    for (const slot of this.slots) {
+      const d = Math.hypot(slot.plotCenter.x - cam.x, slot.plotCenter.z - cam.z);
+      if (d < slot.plotHalf + LOAD_RADIUS && !this.requested.has(slot.id)) {
+        void this.loadCemetery(slot);
+      }
+      if (d < slot.plotHalf + NEAR_MARGIN && d < best) {
+        best = d;
+        nearestId = slot.id;
+      }
+    }
+    if (nearestId !== this.nearestId) {
+      this.nearestId = nearestId;
+      this.nearestCb(nearestId ? this.slots.find((s) => s.id === nearestId)!.company : null);
+    }
+  }
+
+  private async loadCemetery(slot: WorldSlotWithCompany) {
+    this.requested.add(slot.id); // une seule tentative par session (anti-spam au survol)
+    try {
+      const detail = await this.loader(slot.id);
+      if (!this.slots.includes(slot)) return; // on a quitté le monde entre-temps
+      this.loaded.set(slot.id, detail.colleagues);
+      this.buildCemeteryGraves(slot, detail.colleagues);
+    } catch {
+      // ponytail: pas de backoff ; le cimetière reste vide jusqu'au prochain enterWorld.
+    }
+  }
+
+  private buildCemeteryGraves(slot: WorldSlotWithCompany, colleagues: Colleague[]) {
+    this.removeCemeteryGraves(slot.id);
+    // Plan procédural déterministe de la parcelle, seedé sur l'id (issue #5).
+    const layout = cemeteryLayout(slot.id, colleagues.length);
     const now = Date.now();
-
-    list.forEach((colleague, i) => {
+    const cos = Math.cos(slot.rotY);
+    const sin = Math.sin(slot.rotY);
+    colleagues.forEach((colleague, i) => {
       const place = layout.placements[i];
       // Combine les 3 axes visuels indépendants de la tombe (issue #25).
       const grave = createGrave(colleague, this.ambiance.graveColor, graveAxes(colleague, now));
-      grave.position.set(place.x, 0, place.z);
-      grave.rotation.y += place.rotY;
+      // Repère parcelle → monde : rotation rotY autour du centre de la parcelle.
+      grave.position.set(
+        slot.plotCenter.x + place.x * cos + place.z * sin,
+        0,
+        slot.plotCenter.z - place.x * sin + place.z * cos,
+      );
+      grave.rotation.y += place.rotY + slot.rotY;
+      grave.userData.companyId = slot.id;
       this.gravesGroup.add(grave);
     });
+  }
 
-    this.decor.build(this.ambiance, this.plotHalf);
+  private removeCemeteryGraves(id: string) {
+    const stale = this.gravesGroup.children.filter((g) => g.userData.companyId === id);
+    for (const g of stale) {
+      this.gravesGroup.remove(g);
+      disposeObject(g);
+    }
+  }
+
+  private clearWorld() {
+    disposeObject(this.worldGroup);
+    this.worldGroup.clear();
+    disposeObject(this.gravesGroup);
+    this.gravesGroup.clear();
+    this.slots = [];
+    this.loaded.clear();
+    this.requested.clear();
+    this.nearestId = null;
+    this.focused = null;
   }
 
   // ---- Présence multijoueur (#4) ----
@@ -282,7 +345,7 @@ export class Cemetery {
     const peer = this.peers.get(id);
     if (!peer) return;
     this.peersGroup.remove(peer.avatar.group);
-    disposeGroup(peer.avatar.group);
+    disposeObject(peer.avatar.group);
     this.peers.delete(id);
   }
 
@@ -290,19 +353,9 @@ export class Cemetery {
     for (const id of [...this.peers.keys()]) this.removePeer(id);
   }
 
-  private clearHub() {
-    disposeGroup(this.hubGroup);
-    this.portals = [];
-    this.setPortal(null);
-  }
-
   // ---- Boucle ----
 
   private updateFocus() {
-    if (this.mode === "hub") {
-      this.updatePortalFocus();
-      return;
-    }
     const cam = this.camera.position;
     let nearest: Colleague | null = null;
     let best = FOCUS_RADIUS;
@@ -316,27 +369,6 @@ export class Cemetery {
     if (nearest !== this.focused) {
       this.focused = nearest;
       this.focusCb(nearest);
-    }
-  }
-
-  private updatePortalFocus() {
-    const cam = this.camera.position;
-    let nearest: Portal | null = null;
-    let best = PORTAL_RADIUS;
-    for (const portal of this.portals) {
-      const d = Math.hypot(portal.x - cam.x, portal.z - cam.z);
-      if (d < best) {
-        best = d;
-        nearest = portal;
-      }
-    }
-    this.setPortal(nearest);
-  }
-
-  private setPortal(p: Portal | null) {
-    if (p !== this.nearPortal) {
-      this.nearPortal = p;
-      this.portalCb(p);
     }
   }
 
@@ -370,6 +402,7 @@ export class Cemetery {
     if (this.running) {
       this.controls.update(dt);
       this.updateFocus();
+      this.updateStreaming();
       this.publishPresence();
     }
     this.updatePeers(dt);
@@ -385,17 +418,13 @@ export class Cemetery {
 
   private onActionKey = (e: KeyboardEvent) => {
     if (e.type !== "keydown" || !this.controls.isLocked) return;
-    if (e.code === "KeyE" && this.mode === "hub" && this.nearPortal) {
-      this.enterPortalCb(this.nearPortal.company); // entrer dans un cimetière (#5)
-    } else if (e.code === "KeyF") {
-      this.emote("wave"); // emote « saluer » synchronisée (#4)
-    }
+    if (e.code === "KeyF") this.emote("wave"); // emote « saluer » synchronisée (#4)
   };
 }
 
-/** Libère géométries ET matériaux/textures d'un groupe avant de le vider. */
-function disposeGroup(group: THREE.Group) {
-  group.traverse((obj) => {
+/** Libère géométries ET matériaux/textures d'un objet (sans vider le groupe). */
+function disposeObject(root: THREE.Object3D) {
+  root.traverse((obj) => {
     const mesh = obj as THREE.Mesh;
     if (mesh.geometry) mesh.geometry.dispose();
     const mat = mesh.material;
@@ -405,5 +434,4 @@ function disposeGroup(group: THREE.Group) {
       m.dispose();
     }
   });
-  group.clear();
 }

@@ -23,6 +23,7 @@ const portalPrompt = document.getElementById("portal-prompt") as HTMLDivElement;
 const visitorCount = document.getElementById("visitor-count") as HTMLDivElement;
 
 let currentCompanyId: string | null = null;
+let worldTitle = "La route des cimetières";
 
 function formatDate(iso: string | null): string {
   if (!iso) return "";
@@ -33,18 +34,16 @@ function formatDate(iso: string | null): string {
 
 export function setupHud(
   cemetery: Cemetery,
-  handlers: { onBack: () => void; onBackToRoad: () => void; onColleagueAdded: () => void },
+  handlers: { onBack: () => void; onColleagueAdded: () => void },
 ) {
   cemetery.onFocusChange((colleague) => showGrave(colleague));
 
-  // Invite « Appuyez sur E pour entrer » à l'approche d'un portail (hub, issue #5).
-  cemetery.onPortalChange((portal) => {
-    if (!portal) {
-      portalPrompt.classList.add("hidden");
-      return;
-    }
-    portalPrompt.textContent = `Appuyez sur E pour entrer · ${portal.company.name}`;
-    portalPrompt.classList.remove("hidden");
+  // Cimetière où l'on se tient (chargement « à vue », issue #5) : pilote le titre
+  // et le bouton d'ajout, qui ciblent toujours le cimetière courant.
+  cemetery.onNearestCemetery((company) => {
+    currentCompanyId = company?.id ?? null;
+    nameEl.textContent = company ? company.name : worldTitle;
+    addGraveBtn.classList.toggle("hidden", !company);
   });
 
   // Compteur de visiteurs présents dans le salon, soi inclus (issue #4).
@@ -92,15 +91,10 @@ export function setupHud(
           quote: values.quote,
           departedOn: values.departedOn || undefined,
         });
-        cemetery.addColleague(colleague);
+        cemetery.addColleague(currentCompanyId!, colleague);
         handlers.onColleagueAdded();
       },
     );
-  });
-
-  backRoadBtn.addEventListener("click", () => {
-    cemetery.unlock();
-    handlers.onBackToRoad();
   });
 
   backMenuBtn.addEventListener("click", () => {
@@ -120,27 +114,16 @@ function showGrave(colleague: Colleague | null) {
   gravePanel.classList.remove("hidden");
 }
 
-/** Boutons réservés au cimetière (sans objet dans le hub). */
-function setCemeteryButtons(visible: boolean) {
-  addGraveBtn.classList.toggle("hidden", !visible);
-  backRoadBtn.classList.toggle("hidden", !visible);
-}
-
-export function showHud(companyName: string, companyId: string) {
-  currentCompanyId = companyId;
-  nameEl.textContent = companyName;
-  lockPromptText.textContent = "Cliquez pour entrer dans le cimetière";
-  setCemeteryButtons(true);
-  portalPrompt.classList.add("hidden");
-  hudEl.classList.remove("hidden");
-}
-
-/** HUD du hub : pas de tombe à gérer, on parcourt la route (issue #5). */
-export function showHubHud(cemeteryCount: number) {
+/** HUD du monde continu : on parcourt l'allée, les cimetières se chargent à vue (#5).
+ *  Le bouton d'ajout et le titre suivent le cimetière où l'on se tient. */
+export function showWorldHud(cemeteryCount: number) {
   currentCompanyId = null;
-  nameEl.textContent = `La route des cimetières · ${cemeteryCount} entrée${cemeteryCount > 1 ? "s" : ""}`;
-  lockPromptText.textContent = "Cliquez pour parcourir la route";
-  setCemeteryButtons(false);
+  worldTitle = `La route des cimetières · ${cemeteryCount} entrée${cemeteryCount > 1 ? "s" : ""}`;
+  nameEl.textContent = worldTitle;
+  lockPromptText.textContent = "Cliquez pour parcourir le monde";
+  addGraveBtn.classList.add("hidden"); // visible seulement à l'approche d'un cimetière
+  backRoadBtn.classList.add("hidden"); // plus de retour route : on y est toujours
+  portalPrompt.classList.add("hidden");
   hudEl.classList.remove("hidden");
 }
 

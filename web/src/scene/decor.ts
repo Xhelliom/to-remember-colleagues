@@ -99,13 +99,7 @@ export class Decor {
     const foliageMat = new THREE.MeshStandardMaterial({ color: a.foliageColor, roughness: 1 });
     const bare = a.scary || a.seasonKey === "winter";
     for (let i = 0; i < TREE_COUNT; i++) {
-      const tree = new THREE.Group();
-      const h = 2.5 + rand() * 2;
-      const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.28, h, 6), trunkMat);
-      trunk.position.y = h / 2;
-      trunk.castShadow = true;
-      tree.add(trunk);
-      tree.add(bare ? makeBareCrown(trunkMat, h, rand) : makeFoliage(foliageMat, h, rand));
+      const tree = makeTree(trunkMat, foliageMat, bare, rand);
       const angle = rand() * Math.PI * 2;
       const dist = half - 1.5 - rand() * 2;
       tree.position.set(Math.cos(angle) * dist, 0, Math.sin(angle) * dist);
@@ -227,6 +221,23 @@ export class Decor {
       bat.scale.y = 1 + Math.sin(t * BAT_FLAP_SPEED + phase) * 0.6;
     }
   }
+}
+
+/** Un arbre (tronc + couronne) ; réutilisé par le décor du cimetière et la forêt du monde. */
+export function makeTree(
+  trunkMat: THREE.Material,
+  foliageMat: THREE.Material,
+  bare: boolean,
+  rand: () => number,
+): THREE.Group {
+  const tree = new THREE.Group();
+  const h = 2.5 + rand() * 2;
+  const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.28, h, 6), trunkMat);
+  trunk.position.y = h / 2;
+  trunk.castShadow = true;
+  tree.add(trunk);
+  tree.add(bare ? makeBareCrown(trunkMat, h, rand) : makeFoliage(foliageMat, h, rand));
+  return tree;
 }
 
 function makeFoliage(mat: THREE.Material, trunkHeight: number, rand: () => number): THREE.Mesh {
