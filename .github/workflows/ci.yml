@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    name: Qualité du code
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: cimetiere
+          POSTGRES_PASSWORD: cimetiere
+          POSTGRES_DB: cimetiere
+        ports:
+          - 5499:5432
+        options: >-
+          --health-cmd "pg_isready -U cimetiere -d cimetiere"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      DATABASE_URL: postgres://cimetiere:cimetiere@localhost:5499/cimetiere
+      BETTER_AUTH_SECRET: changeme-secret-pour-les-tests-ci-32chars
+      PORT: 3300
+      CORS_ORIGIN: http://localhost:5173
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Installer les dépendances
+        run: pnpm install --frozen-lockfile
+
+      - name: Vérification des types
+        run: pnpm typecheck
+
+      - name: Tests unitaires et intégration
+        run: pnpm test
+
+      - name: Build de production
+        run: pnpm build
