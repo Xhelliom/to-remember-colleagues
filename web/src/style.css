@@ -1,0 +1,428 @@
+:root {
+  --bg: #0c0f16;
+  --panel: rgba(18, 20, 28, 0.92);
+  --panel-border: rgba(180, 190, 210, 0.14);
+  --text: #e8e6e1;
+  --muted: #9aa0ab;
+  --accent: #b9a06b;
+  --accent-strong: #d8c08a;
+  --danger: #d4796a;
+  --radius: 14px;
+  font-family: "EB Garamond", Georgia, serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+#scene {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.muted {
+  color: var(--muted);
+}
+
+/* --- Overlays plein écran --- */
+.overlay {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 20;
+  padding: 24px;
+  background: radial-gradient(circle at 50% 30%, rgba(30, 26, 40, 0.6), rgba(6, 7, 12, 0.95));
+  backdrop-filter: blur(3px);
+}
+
+.dialog-overlay {
+  z-index: 40;
+}
+
+/* --- Panneaux --- */
+.panel {
+  width: min(640px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius);
+  padding: 32px;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+}
+
+h1 {
+  font-family: "Cinzel", serif;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  margin: 0 0 8px;
+  color: var(--accent-strong);
+}
+
+h2,
+h3 {
+  font-family: "Cinzel", serif;
+  color: var(--accent-strong);
+}
+
+.subtitle {
+  color: var(--muted);
+  margin: 0 0 24px;
+  line-height: 1.5;
+}
+
+/* --- Champs de formulaire --- */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.field span {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+input,
+textarea,
+select {
+  font-family: inherit;
+  font-size: 1rem;
+  color: var(--text);
+  background: rgba(10, 12, 18, 0.8);
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+input:focus,
+textarea:focus,
+select:focus {
+  border-color: var(--accent);
+}
+
+textarea {
+  resize: vertical;
+}
+
+/* --- Boutons --- */
+.primary-btn,
+.ghost-btn {
+  font-family: "Cinzel", serif;
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 12px 20px;
+  font-size: 0.95rem;
+  transition: all 0.15s;
+}
+
+.primary-btn {
+  width: 100%;
+  background: linear-gradient(180deg, var(--accent-strong), var(--accent));
+  color: #1a160c;
+  border: none;
+  font-weight: 600;
+}
+
+.primary-btn:hover {
+  filter: brightness(1.08);
+}
+
+.ghost-btn {
+  background: transparent;
+  color: var(--text);
+  border: 1px solid var(--panel-border);
+}
+
+.ghost-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+}
+
+.ghost-btn.small {
+  padding: 8px 14px;
+  font-size: 0.85rem;
+}
+
+/* --- Auth --- */
+.auth-panel {
+  width: min(420px, 100%);
+}
+
+.auth-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.auth-tab {
+  flex: 1;
+  background: transparent;
+  border: 1px solid var(--panel-border);
+  color: var(--muted);
+  border-radius: 8px;
+  padding: 10px;
+  cursor: pointer;
+  font-family: "Cinzel", serif;
+}
+
+.auth-tab.active {
+  border-color: var(--accent);
+  color: var(--accent-strong);
+  background: rgba(185, 160, 107, 0.1);
+}
+
+.auth-error,
+.dialog-error {
+  color: var(--danger);
+  margin: 0 0 12px;
+  font-size: 0.9rem;
+}
+
+/* --- Menu --- */
+.menu-panel {
+  width: min(760px, 100%);
+  max-height: 86vh;
+  overflow-y: auto;
+}
+
+.menu-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+}
+
+.menu-user {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.company-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 16px;
+  margin: 8px 0 20px;
+}
+
+.company-card {
+  background: rgba(12, 14, 20, 0.7);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 18px;
+  cursor: pointer;
+  transition: transform 0.15s, border-color 0.15s;
+}
+
+.company-card:hover {
+  transform: translateY(-3px);
+  border-color: var(--accent);
+}
+
+.company-card h3 {
+  margin: 0 0 8px;
+  color: var(--accent-strong);
+}
+
+.company-card p {
+  margin: 0 0 12px;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.4;
+  min-height: 2.6em;
+}
+
+.grave-count {
+  font-size: 0.85rem;
+  color: var(--accent);
+}
+
+/* --- HUD --- */
+#hud {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  pointer-events: none;
+}
+
+#hud button {
+  pointer-events: auto;
+}
+
+#crosshair {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  width: 6px;
+  height: 6px;
+  margin: -3px 0 0 -3px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.5);
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.8);
+}
+
+.cemetery-name {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: "Cinzel", serif;
+  font-size: 1.4rem;
+  color: var(--accent-strong);
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.9);
+}
+
+.hud-buttons {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  gap: 8px;
+}
+
+.controls-hint {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: system-ui, sans-serif;
+  font-size: 0.78rem;
+  color: rgba(232, 230, 225, 0.7);
+  background: rgba(8, 9, 14, 0.6);
+  padding: 8px 14px;
+  border-radius: 20px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+
+.grave-panel {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(520px, 90%);
+  background: rgba(10, 11, 16, 0.85);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 20px 24px;
+  text-align: center;
+  backdrop-filter: blur(4px);
+}
+
+.grave-panel-name {
+  font-family: "Cinzel", serif;
+  font-size: 1.3rem;
+  color: var(--accent-strong);
+}
+
+.grave-panel-dates {
+  color: var(--muted);
+  font-size: 0.88rem;
+  margin-top: 4px;
+}
+
+.grave-panel-quote {
+  margin: 14px 0 0;
+  font-style: italic;
+  font-size: 1.1rem;
+  line-height: 1.5;
+  color: var(--text);
+}
+
+.ambiance-panel {
+  position: fixed;
+  top: 60px;
+  right: 16px;
+  width: 260px;
+  background: rgba(10, 11, 16, 0.92);
+  border: 1px solid var(--panel-border);
+  border-radius: 12px;
+  padding: 18px;
+  pointer-events: auto;
+}
+
+.ambiance-panel h3 {
+  margin: 0 0 12px;
+}
+
+.lock-prompt {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6, 7, 12, 0.45);
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+.lock-prompt p {
+  font-family: "Cinzel", serif;
+  font-size: 1.3rem;
+  color: var(--accent-strong);
+  border: 1px solid var(--panel-border);
+  padding: 18px 30px;
+  border-radius: 12px;
+  background: rgba(10, 11, 16, 0.8);
+}
+
+/* --- Dialog --- */
+.dialog-box {
+  width: min(460px, 100%);
+}
+
+.dialog-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.dialog-actions .ghost-btn,
+.dialog-actions .primary-btn {
+  flex: 1;
+  width: auto;
+}
+
+/* --- Loader --- */
+.loader-inner {
+  text-align: center;
+  color: var(--muted);
+}
+
+.loader-spinner {
+  width: 42px;
+  height: 42px;
+  margin: 0 auto 18px;
+  border: 3px solid rgba(185, 160, 107, 0.25);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

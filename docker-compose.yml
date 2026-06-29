@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:18
+    container_name: cimetiere_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cimetiere
+      POSTGRES_PASSWORD: cimetiere
+      POSTGRES_DB: cimetiere
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cimetiere -d cimetiere"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  pgdata:

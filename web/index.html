@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Le Cimetière des Collègues</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;600;700&family=EB+Garamond:ital@0;1&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <!-- Écran de chargement -->
+  <div id="loader" class="overlay">
+    <div class="loader-inner">
+      <div class="loader-spinner"></div>
+      <p>Ouverture des grilles du cimetière…</p>
+    </div>
+  </div>
+
+  <!-- Connexion / inscription -->
+  <div id="auth" class="overlay hidden">
+    <form id="auth-form" class="panel auth-panel">
+      <h1>Le Cimetière des Collègues</h1>
+      <p class="subtitle">En mémoire de celles et ceux qui ont quitté l'entreprise.</p>
+      <div class="auth-tabs">
+        <button type="button" class="auth-tab active" data-mode="signin">Connexion</button>
+        <button type="button" class="auth-tab" data-mode="signup">Inscription</button>
+      </div>
+      <label class="field signup-only hidden">
+        <span>Nom affiché</span>
+        <input type="text" name="name" autocomplete="name" />
+      </label>
+      <label class="field">
+        <span>Email</span>
+        <input type="email" name="email" autocomplete="email" required />
+      </label>
+      <label class="field">
+        <span>Mot de passe</span>
+        <input type="password" name="password" autocomplete="current-password" minlength="6" required />
+      </label>
+      <p class="auth-error hidden"></p>
+      <button type="submit" class="primary-btn">Entrer</button>
+    </form>
+  </div>
+
+  <!-- Menu : choix du cimetière -->
+  <div id="menu" class="overlay hidden">
+    <div class="panel menu-panel">
+      <div class="menu-header">
+        <h1>Choisissez un cimetière</h1>
+        <div class="menu-user">
+          <span id="menu-user-name"></span>
+          <button id="signout-btn" class="ghost-btn small">Déconnexion</button>
+        </div>
+      </div>
+      <p class="subtitle">Chaque entreprise a son cimetière. Entrez vous recueillir.</p>
+      <div id="company-list" class="company-list"></div>
+      <button id="add-company-btn" class="ghost-btn">+ Nouvelle entreprise</button>
+    </div>
+  </div>
+
+  <!-- HUD en jeu -->
+  <div id="hud" class="hidden">
+    <div id="crosshair"></div>
+    <div id="cemetery-name" class="cemetery-name"></div>
+
+    <div id="grave-panel" class="grave-panel hidden">
+      <div class="grave-panel-name"></div>
+      <div class="grave-panel-dates"></div>
+      <blockquote class="grave-panel-quote"></blockquote>
+    </div>
+
+    <div id="controls-hint" class="controls-hint">
+      <strong>ZQSD / WASD</strong> ou flèches · <strong>Souris</strong> pour regarder · <strong>Maj</strong> pour courir · <strong>Échap</strong> pour le menu
+    </div>
+
+    <div class="hud-buttons">
+      <button id="ambiance-btn" class="ghost-btn small">Ambiance</button>
+      <button id="add-grave-btn" class="ghost-btn small">+ Ajouter un collègue</button>
+      <button id="back-menu-btn" class="ghost-btn small">← Menu</button>
+    </div>
+
+    <!-- Panneau d'aperçu d'ambiance -->
+    <div id="ambiance-panel" class="ambiance-panel hidden">
+      <h3>Ambiance</h3>
+      <label class="field">
+        <span>Moment</span>
+        <select id="ambiance-time">
+          <option value="auto">Automatique (heure réelle)</option>
+          <option value="dawn">Aube</option>
+          <option value="day">Jour</option>
+          <option value="dusk">Crépuscule</option>
+          <option value="night">Nuit</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Saison</span>
+        <select id="ambiance-season">
+          <option value="auto">Automatique (date réelle)</option>
+          <option value="spring">Printemps</option>
+          <option value="summer">Été</option>
+          <option value="autumn">Automne</option>
+          <option value="winter">Hiver</option>
+          <option value="halloween">🎃 Halloween (effrayant)</option>
+        </select>
+      </label>
+    </div>
+
+    <div id="lock-prompt" class="lock-prompt">
+      <p>Cliquez pour entrer dans le cimetière</p>
+    </div>
+  </div>
+
+  <!-- Boîte de dialogue (ajout entreprise / collègue) -->
+  <div id="dialog" class="overlay dialog-overlay hidden">
+    <form id="dialog-form" class="panel dialog-box">
+      <h2 id="dialog-title"></h2>
+      <div id="dialog-fields"></div>
+      <p class="dialog-error hidden"></p>
+      <div class="dialog-actions">
+        <button type="button" id="dialog-cancel" class="ghost-btn">Annuler</button>
+        <button type="submit" class="primary-btn">Enregistrer</button>
+      </div>
+    </form>
+  </div>
+
+  <canvas id="scene"></canvas>
+
+  <script type="module" src="/src/main.ts"></script>
+</body>
+</html>

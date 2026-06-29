@@ -1,0 +1,30 @@
+{
+  "name": "server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch --env-file-if-exists=.env --experimental-strip-types src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node --env-file-if-exists=.env dist/index.js",
+    "typecheck": "tsgo --noEmit || tsc --noEmit",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "node --env-file-if-exists=.env --experimental-strip-types src/db/migrate.ts",
+    "db:studio": "drizzle-kit studio",
+    "seed": "node --env-file-if-exists=.env --experimental-strip-types src/seed.ts"
+  },
+  "dependencies": {
+    "@fastify/cors": "^11.0.0",
+    "better-auth": "^1.6.22",
+    "drizzle-orm": "^0.45.2",
+    "fastify": "^5.9.0",
+    "pg": "^8.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/pg": "^8.11.0",
+    "@typescript/native-preview": "latest",
+    "drizzle-kit": "^0.31.10",
+    "typescript": "7.0.1-rc"
+  }
+}

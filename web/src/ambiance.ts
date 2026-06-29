@@ -1,0 +1,168 @@
+// Détermination et description de l'ambiance du cimetière selon l'heure et la saison.
+
+export type TimeKey = "dawn" | "day" | "dusk" | "night";
+export type SeasonKey = "spring" | "summer" | "autumn" | "winter" | "halloween";
+export type ParticleKind = "none" | "snow" | "leaves" | "pollen" | "embers";
+
+export type TimeSetting = TimeKey | "auto";
+export type SeasonSetting = SeasonKey | "auto";
+
+export type Ambiance = {
+  timeKey: TimeKey;
+  seasonKey: SeasonKey;
+  skyTop: number;
+  skyBottom: number;
+  fogColor: number;
+  fogDensity: number;
+  hemiSky: number;
+  hemiGround: number;
+  hemiIntensity: number;
+  keyLightColor: number;
+  keyLightIntensity: number;
+  /** Direction de la lumière principale (soleil ou lune), normalisée approximativement. */
+  keyLightDir: [number, number, number];
+  ambientColor: number;
+  ambientIntensity: number;
+  groundColor: number;
+  grassColor: number;
+  foliageColor: number;
+  graveColor: number;
+  /** Astre visible dans le ciel : soleil, lune ou aucun. */
+  celestial: "sun" | "moon" | "none";
+  celestialColor: number;
+  particles: ParticleKind;
+  /** Mode effrayant (Halloween) : lumière vacillante, citrouilles, chauves-souris… */
+  scary: boolean;
+};
+
+export function resolveTimeKey(setting: TimeSetting, hour: number): TimeKey {
+  if (setting !== "auto") return setting;
+  if (hour >= 5 && hour < 8) return "dawn";
+  if (hour >= 8 && hour < 18) return "day";
+  if (hour >= 18 && hour < 21) return "dusk";
+  return "night";
+}
+
+export function resolveSeasonKey(setting: SeasonSetting, month: number, day: number): SeasonKey {
+  if (setting !== "auto") return setting;
+  // Halloween : derniers jours d'octobre (hémisphère Nord).
+  if (month === 10 && day >= 24) return "halloween";
+  if (month >= 3 && month <= 5) return "spring";
+  if (month >= 6 && month <= 8) return "summer";
+  if (month >= 9 && month <= 11) return "autumn";
+  return "winter";
+}
+
+// Palettes de base par saison (couleurs de jour).
+const SEASON_PALETTE: Record<SeasonKey, { ground: number; grass: number; foliage: number; grave: number; particles: ParticleKind }> = {
+  spring: { ground: 0x4a5a3a, grass: 0x6f8f4e, foliage: 0x7bb661, grave: 0x9a958c, particles: "pollen" },
+  summer: { ground: 0x55603a, grass: 0x7c9244, foliage: 0x5f8f3e, grave: 0xa49f95, particles: "none" },
+  autumn: { ground: 0x5b4a30, grass: 0x8a7a3e, foliage: 0xc06a2a, grave: 0x8f897e, particles: "leaves" },
+  winter: { ground: 0x6b6f76, grass: 0x8f969c, foliage: 0x9aa6ad, grave: 0x9ea4ab, particles: "snow" },
+  halloween: { ground: 0x241a26, grass: 0x33263a, foliage: 0x2c2230, grave: 0x6d6470, particles: "embers" },
+};
+
+// Modificateurs lumineux par moment de la journée.
+const TIME_PROFILE: Record<TimeKey, {
+  skyTop: number; skyBottom: number; fogColor: number; fogDensity: number;
+  hemiSky: number; hemiGround: number; hemiIntensity: number;
+  keyColor: number; keyIntensity: number; keyDir: [number, number, number];
+  ambient: number; ambientIntensity: number; celestial: "sun" | "moon" | "none"; celestialColor: number;
+}> = {
+  dawn: {
+    skyTop: 0x4a6a99, skyBottom: 0xe7a977, fogColor: 0xb79a8e, fogDensity: 0.018,
+    hemiSky: 0x9fb8d8, hemiGround: 0x6a5d4e, hemiIntensity: 0.9,
+    keyColor: 0xffd2a1, keyIntensity: 1.1, keyDir: [-0.6, 0.35, -0.7],
+    ambient: 0x6f7a90, ambientIntensity: 0.5, celestial: "sun", celestialColor: 0xffd9a0,
+  },
+  day: {
+    skyTop: 0x5b8fd6, skyBottom: 0xbcd6f2, fogColor: 0xc7d6e6, fogDensity: 0.01,
+    hemiSky: 0xbfd8f2, hemiGround: 0x6b6453, hemiIntensity: 1.25,
+    keyColor: 0xfff4e0, keyIntensity: 1.7, keyDir: [0.5, 0.85, 0.3],
+    ambient: 0x9fb0c4, ambientIntensity: 0.65, celestial: "sun", celestialColor: 0xfff6e6,
+  },
+  dusk: {
+    skyTop: 0x33305e, skyBottom: 0xd06a4f, fogColor: 0x7a5a66, fogDensity: 0.022,
+    hemiSky: 0x6a5a8a, hemiGround: 0x4a3d3a, hemiIntensity: 0.75,
+    keyColor: 0xff8a5c, keyIntensity: 1.0, keyDir: [0.7, 0.22, -0.5],
+    ambient: 0x5a4f66, ambientIntensity: 0.45, celestial: "sun", celestialColor: 0xff7a4a,
+  },
+  night: {
+    skyTop: 0x0a0f24, skyBottom: 0x1a2240, fogColor: 0x141a30, fogDensity: 0.03,
+    hemiSky: 0x2a3458, hemiGround: 0x141420, hemiIntensity: 0.45,
+    keyColor: 0x9fb6e0, keyIntensity: 0.55, keyDir: [-0.4, 0.6, -0.6],
+    ambient: 0x26304e, ambientIntensity: 0.35, celestial: "moon", celestialColor: 0xcdd8ff,
+  },
+};
+
+export function getAmbiance(timeKey: TimeKey, seasonKey: SeasonKey): Ambiance {
+  const palette = SEASON_PALETTE[seasonKey];
+  const scary = seasonKey === "halloween";
+
+  // Halloween force une ambiance nocturne inquiétante quel que soit le moment.
+  const profile = scary ? TIME_PROFILE.night : TIME_PROFILE[timeKey];
+
+  const base: Ambiance = {
+    timeKey,
+    seasonKey,
+    skyTop: profile.skyTop,
+    skyBottom: profile.skyBottom,
+    fogColor: profile.fogColor,
+    fogDensity: profile.fogDensity,
+    hemiSky: profile.hemiSky,
+    hemiGround: profile.hemiGround,
+    hemiIntensity: profile.hemiIntensity,
+    keyLightColor: profile.keyColor,
+    keyLightIntensity: profile.keyIntensity,
+    keyLightDir: profile.keyDir,
+    ambientColor: profile.ambient,
+    ambientIntensity: profile.ambientIntensity,
+    groundColor: palette.ground,
+    grassColor: palette.grass,
+    foliageColor: palette.foliage,
+    graveColor: palette.grave,
+    celestial: profile.celestial,
+    celestialColor: profile.celestialColor,
+    particles: palette.particles,
+    scary,
+  };
+
+  if (scary) {
+    // Cimetière qui fait peur : ciel violacé, pleine lune blafarde, brouillard épais.
+    base.skyTop = 0x0c0816;
+    base.skyBottom = 0x2a163a;
+    base.fogColor = 0x160d1e;
+    base.fogDensity = 0.05;
+    base.hemiSky = 0x3a2a52;
+    base.hemiGround = 0x120c18;
+    base.hemiIntensity = 0.4;
+    base.keyLightColor = 0xb9a6e0;
+    base.keyLightIntensity = 0.5;
+    base.ambientColor = 0x2a1a3a;
+    base.ambientIntensity = 0.3;
+    base.celestial = "moon";
+    base.celestialColor = 0xe8e2ff;
+  }
+
+  // En hiver, le sol enneigé éclaircit l'ambiance ; en automne, teinte plus chaude.
+  if (seasonKey === "winter" && !scary) {
+    base.fogColor = mix(base.fogColor, 0xdfe6ee, 0.35);
+    base.hemiIntensity *= 1.1;
+  }
+
+  return base;
+}
+
+/** Mélange linéaire de deux couleurs hexadécimales (t entre 0 et 1). */
+export function mix(a: number, b: number, t: number): number {
+  const ar = (a >> 16) & 0xff;
+  const ag = (a >> 8) & 0xff;
+  const ab = a & 0xff;
+  const br = (b >> 16) & 0xff;
+  const bg = (b >> 8) & 0xff;
+  const bb = b & 0xff;
+  const r = Math.round(ar + (br - ar) * t);
+  const g = Math.round(ag + (bg - ag) * t);
+  const bl = Math.round(ab + (bb - ab) * t);
+  return (r << 16) | (g << 8) | bl;
+}

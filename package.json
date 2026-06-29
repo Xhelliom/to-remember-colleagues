@@ -1,0 +1,29 @@
+{
+  "name": "to-remember-colleagues",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Le Cimetière des Collègues — application web 3D mémoriale.",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "pnpm@10.33.0",
+  "pnpm": {
+    "overrides": {
+      "better-call": "1.3.7",
+      "@better-fetch/fetch": "1.3.1"
+    }
+  },
+  "scripts": {
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose down",
+    "db:generate": "pnpm --filter server db:generate",
+    "db:migrate": "pnpm --filter server db:migrate",
+    "seed": "pnpm --filter server seed",
+    "dev:server": "pnpm --filter server dev",
+    "dev:web": "pnpm --filter web dev",
+    "dev": "pnpm run --parallel \"/dev:(server|web)/\"",
+    "build": "pnpm --filter web build && pnpm --filter server build",
+    "typecheck": "pnpm -r typecheck"
+  }
+}
