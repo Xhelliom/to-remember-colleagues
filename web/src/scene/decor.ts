@@ -64,33 +64,7 @@ export class Decor {
   }
 
   private buildFence(a: Ambiance, half: number) {
-    const mat = new THREE.MeshStandardMaterial({
-      color: a.scary ? 0x1a1a1f : 0x2b2b30,
-      roughness: 0.7,
-      metalness: 0.4,
-    });
-    const postGeo = new THREE.CylinderGeometry(0.06, 0.06, FENCE_POST_HEIGHT, 6);
-    const sides: Array<[number, number, number, number]> = [
-      [-half, half, -half, -half],
-      [-half, half, half, half],
-      [-half, -half, -half, half],
-      [half, half, -half, half],
-    ];
-    for (const [x1, x2, z1, z2] of sides) {
-      const len = Math.hypot(x2 - x1, z2 - z1);
-      const count = Math.floor(len / FENCE_POST_STEP);
-      for (let i = 0; i <= count; i++) {
-        const t = i / count;
-        const post = new THREE.Mesh(postGeo, mat);
-        post.position.set(x1 + (x2 - x1) * t, FENCE_POST_HEIGHT / 2, z1 + (z2 - z1) * t);
-        post.castShadow = true;
-        this.group.add(post);
-      }
-      const rail = new THREE.Mesh(new THREE.BoxGeometry(len, 0.06, 0.06), mat);
-      rail.position.set((x1 + x2) / 2, FENCE_RAIL_HEIGHT, (z1 + z2) / 2);
-      if (Math.abs(z2 - z1) > Math.abs(x2 - x1)) rail.rotation.y = Math.PI / 2;
-      this.group.add(rail);
-    }
+    this.group.add(makeFence(half, a.scary));
   }
 
   private buildTrees(a: Ambiance, half: number) {
@@ -221,6 +195,46 @@ export class Decor {
       bat.scale.y = 1 + Math.sin(t * BAT_FLAP_SPEED + phase) * 0.6;
     }
   }
+}
+
+/** Côté d'une parcelle (repère local) ; sert à laisser l'enceinte ouverte côté route. */
+export type FenceSide = "+x" | "-x" | "+z" | "-z";
+
+/**
+ * Enceinte carrée (grille) d'une parcelle de demi-côté `half`. `open` omet un
+ * côté pour ménager l'entrée (sous l'arche, côté route dans le monde continu).
+ */
+export function makeFence(half: number, scary: boolean, open?: FenceSide): THREE.Group {
+  const g = new THREE.Group();
+  const mat = new THREE.MeshStandardMaterial({
+    color: scary ? 0x1a1a1f : 0x2b2b30,
+    roughness: 0.7,
+    metalness: 0.4,
+  });
+  const postGeo = new THREE.CylinderGeometry(0.06, 0.06, FENCE_POST_HEIGHT, 6);
+  const sides: Array<[number, number, number, number, FenceSide]> = [
+    [-half, half, -half, -half, "-z"],
+    [-half, half, half, half, "+z"],
+    [-half, -half, -half, half, "-x"],
+    [half, half, -half, half, "+x"],
+  ];
+  for (const [x1, x2, z1, z2, side] of sides) {
+    if (side === open) continue;
+    const len = Math.hypot(x2 - x1, z2 - z1);
+    const count = Math.floor(len / FENCE_POST_STEP);
+    for (let i = 0; i <= count; i++) {
+      const t = i / count;
+      const post = new THREE.Mesh(postGeo, mat);
+      post.position.set(x1 + (x2 - x1) * t, FENCE_POST_HEIGHT / 2, z1 + (z2 - z1) * t);
+      post.castShadow = true;
+      g.add(post);
+    }
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(len, 0.06, 0.06), mat);
+    rail.position.set((x1 + x2) / 2, FENCE_RAIL_HEIGHT, (z1 + z2) / 2);
+    if (Math.abs(z2 - z1) > Math.abs(x2 - x1)) rail.rotation.y = Math.PI / 2;
+    g.add(rail);
+  }
+  return g;
 }
 
 /** Un arbre (tronc + couronne) ; réutilisé par le décor du cimetière et la forêt du monde. */

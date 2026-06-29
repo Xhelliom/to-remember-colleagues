@@ -7,7 +7,7 @@ import type { Company } from "./types.ts";
 import type { Ambiance } from "./ambiance.ts";
 import { worldLayout, ROAD_HALF, type Vec2, type WorldSlot } from "./worldLayout.ts";
 import { buildEntranceArch } from "./hub.ts";
-import { makeTree } from "./scene/decor.ts";
+import { makeTree, makeFence, type FenceSide } from "./scene/decor.ts";
 import { seededRandom } from "./graves.ts";
 
 const ROAD_Y = 0.02; // léger décollement du sol pour éviter le z-fighting
@@ -123,6 +123,18 @@ function buildForest(
   return g;
 }
 
+/** Côté de la parcelle (repère local, tourné de rotY) qui fait face à la route. */
+function roadFacingSide(slot: WorldSlot): FenceSide {
+  const tx = slot.entrance.x - slot.plotCenter.x;
+  const tz = slot.entrance.z - slot.plotCenter.z;
+  const cos = Math.cos(slot.rotY);
+  const sin = Math.sin(slot.rotY);
+  const lx = tx * cos - tz * sin; // direction route exprimée dans le repère parcelle
+  const lz = tx * sin + tz * cos;
+  if (Math.abs(lx) >= Math.abs(lz)) return lx >= 0 ? "+x" : "-x";
+  return lz >= 0 ? "+z" : "-z";
+}
+
 /** Assemble le monde complet (route + arches + forêt) prêt à être ajouté à la scène. */
 export function buildWorld(companies: Company[], ambiance: Ambiance): World {
   const layout = worldLayout(companies.map((c) => ({ id: c.id, graveCount: c.graveCount })));
@@ -138,6 +150,13 @@ export function buildWorld(companies: Company[], ambiance: Ambiance): World {
     const arch = buildEntranceArch(company, slot.rotY);
     arch.position.set(slot.entrance.x, 0, slot.entrance.z);
     group.add(arch);
+
+    // Grille d'enceinte autour de la parcelle, ouverte côté route (sous l'arche).
+    const fence = makeFence(slot.plotHalf, ambiance.scary, roadFacingSide(slot));
+    fence.position.set(slot.plotCenter.x, 0, slot.plotCenter.z);
+    fence.rotation.y = slot.rotY;
+    group.add(fence);
+
     slots.push({ ...slot, company });
   }
 
