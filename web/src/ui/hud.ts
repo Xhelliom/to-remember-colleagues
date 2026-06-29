@@ -55,6 +55,8 @@ async function loadMyVote(colleague: Colleague) {
   updateVoteButtons(0, colleague.voteScore);
   try {
     const v = await getMyVote(colleague.id);
+    // Guard contre la course : l'utilisateur a pu focaliser une autre tombe pendant la requête.
+    if (focusedColleague?.id !== colleague.id) return;
     updateVoteButtons(v, colleague.voteScore);
   } catch {
     /* pas connecté ou réseau — boutons neutres */
@@ -92,17 +94,13 @@ function updateKarma(karma: number) {
   karmaGauge.classList.remove("hidden");
 }
 
-export function setupHud(
-  cemetery: Cemetery,
-  handlers: { onBack: () => void; onBackToRoad: () => void; onColleagueAdded: () => void },
-) {
+function setupCemeteryListeners(cemetery: Cemetery) {
   cemetery.onFocusChange((colleague) => {
     focusedColleague = colleague;
     showGrave(colleague);
     if (colleague) void loadMyVote(colleague);
   });
 
-  // Invite « Appuyez sur E pour entrer » à l'approche d'un portail (hub, issue #5).
   cemetery.onPortalChange((portal) => {
     if (!portal) {
       portalPrompt.classList.add("hidden");
@@ -112,7 +110,6 @@ export function setupHud(
     portalPrompt.classList.remove("hidden");
   });
 
-  // Compteur de visiteurs présents dans le salon, soi inclus (issue #4).
   cemetery.onVisitorCount((n) => {
     visitorCount.textContent = n > 0 ? `👥 ${n} visiteur${n > 1 ? "s" : ""}` : "";
   });
@@ -126,11 +123,12 @@ export function setupHud(
   });
 
   lockPrompt.addEventListener("click", () => cemetery.requestLock());
+}
 
+function setupAmbianceControls(cemetery: Cemetery) {
   ambianceBtn.addEventListener("click", () => {
     ambiancePanel.classList.toggle("hidden");
   });
-
   const applyAmbiance = () => {
     cemetery.setAmbianceSettings(
       timeSelect.value as TimeSetting,
@@ -139,7 +137,9 @@ export function setupHud(
   };
   timeSelect.addEventListener("change", applyAmbiance);
   seasonSelect.addEventListener("change", applyAmbiance);
+}
 
+function setupGraveActions(cemetery: Cemetery, handlers: { onColleagueAdded: () => void }) {
   voteUpBtn.addEventListener("click", () => { void handleVote(1); });
   voteDownBtn.addEventListener("click", () => { void handleVote(-1); });
 
@@ -147,7 +147,12 @@ export function setupHud(
     if (!focusedColleague) return;
     const wasLocked = cemetery.isLocked;
     if (wasLocked) cemetery.unlock();
-    void openGuestbook(focusedColleague.id, focusedColleague.name);
+    void openGuestbook(
+      focusedColleague.id,
+      focusedColleague.name,
+      // Rend la main au cimetière quand le livre d'or se ferme (le clic fermer est un geste utilisateur valide pour requestPointerLock).
+      wasLocked ? () => cemetery.requestLock() : undefined,
+    );
   });
 
   addGraveBtn.addEventListener("click", () => {
@@ -172,7 +177,9 @@ export function setupHud(
       },
     );
   });
+}
 
+function setupNavigationButtons(cemetery: Cemetery, handlers: { onBack: () => void; onBackToRoad: () => void }) {
   backRoadBtn.addEventListener("click", () => {
     cemetery.unlock();
     handlers.onBackToRoad();
@@ -182,6 +189,16 @@ export function setupHud(
     cemetery.unlock();
     handlers.onBack();
   });
+}
+
+export function setupHud(
+  cemetery: Cemetery,
+  handlers: { onBack: () => void; onBackToRoad: () => void; onColleagueAdded: () => void },
+) {
+  setupCemeteryListeners(cemetery);
+  setupAmbianceControls(cemetery);
+  setupGraveActions(cemetery, handlers);
+  setupNavigationButtons(cemetery, handlers);
 }
 
 function showGrave(colleague: Colleague | null) {

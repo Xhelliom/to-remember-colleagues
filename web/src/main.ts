@@ -36,8 +36,7 @@ async function enterCemetery(company: Company) {
   // Chargement à la demande des tombes de ce cimetière (issue #5).
   const detail = await getColleagues(company.id);
   cemetery.setCemetery(detail);
-  // Le karma peut venir de la Company déjà chargée (menu/hub) ou du détail (issue #3).
-  const karma = "karma" in detail ? (detail.karma as number) : company.karma ?? 0;
+  const karma = detail.karma;
   showHud(company.name, company.id, karma);
   cemetery.setActive(true);
   // L'utilisateur clique sur l'invite pour capturer la souris et commencer à marcher.

@@ -1,5 +1,5 @@
 import type { FastifyInstance } from "fastify";
-import { asc, eq, sql } from "drizzle-orm";
+import { asc, eq } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import { colleagues, companies } from "../db/schema.ts";
 import { requireUser } from "../session.ts";
@@ -10,7 +10,17 @@ export async function colleagueRoutes(app: FastifyInstance) {
   app.get("/api/companies/:id/colleagues", async (request, reply) => {
     const { id } = request.params as { id: string };
 
-    const [company] = await db.select().from(companies).where(eq(companies.id, id)).limit(1);
+    const [company] = await db
+      .select({
+        id: companies.id,
+        name: companies.name,
+        slug: companies.slug,
+        description: companies.description,
+        createdAt: companies.createdAt,
+      })
+      .from(companies)
+      .where(eq(companies.id, id))
+      .limit(1);
     if (!company) {
       return reply.code(404).send({ error: "Cimetière introuvable." });
     }
@@ -63,7 +73,7 @@ export async function colleagueRoutes(app: FastifyInstance) {
         departedOn?: string;
       };
 
-      const [company] = await db.select().from(companies).where(eq(companies.id, id)).limit(1);
+      const [company] = await db.select({ id: companies.id }).from(companies).where(eq(companies.id, id)).limit(1);
       if (!company) {
         return reply.code(404).send({ error: "Cimetière introuvable." });
       }

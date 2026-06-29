@@ -10,13 +10,12 @@ const errorEl = form.querySelector(".guestbook-error") as HTMLParagraphElement;
 const closeBtn = document.getElementById("guestbook-close") as HTMLButtonElement;
 
 let activeColleagueId: string | null = null;
+let onCloseCallback: (() => void) | null = null;
 
 function escapeHtml(s: string): string {
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+  return s.replace(/[&<>"']/g, (c) => {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!;
+  });
 }
 
 function formatDate(iso: string): string {
@@ -65,6 +64,8 @@ function appendMessage(m: GraveMessage) {
 function close() {
   overlay.classList.add("hidden");
   activeColleagueId = null;
+  onCloseCallback?.();
+  onCloseCallback = null;
 }
 
 closeBtn.addEventListener("click", close);
@@ -89,8 +90,9 @@ form.addEventListener("submit", async (e) => {
 });
 
 /** Ouvre le livre d'or pour un collègue donné. */
-export async function openGuestbook(colleagueId: string, colleagueName: string) {
+export async function openGuestbook(colleagueId: string, colleagueName: string, onClose?: () => void) {
   activeColleagueId = colleagueId;
+  onCloseCallback = onClose ?? null;
   titleEl.textContent = `Livre d'or · ${colleagueName}`;
   messagesEl.innerHTML = `<p class="guestbook-empty">Chargement…</p>`;
   errorEl.classList.add("hidden");
@@ -99,8 +101,12 @@ export async function openGuestbook(colleagueId: string, colleagueName: string) 
 
   try {
     const messages = await getGraveMessages(colleagueId);
+    // Guard contre la course : l'utilisateur a pu basculer vers une autre tombe pendant le chargement.
+    if (activeColleagueId !== colleagueId) return;
     renderMessages(messages);
   } catch {
-    messagesEl.innerHTML = `<p class="guestbook-empty">Impossible de charger les messages.</p>`;
+    if (activeColleagueId === colleagueId) {
+      messagesEl.innerHTML = `<p class="guestbook-empty">Impossible de charger les messages.</p>`;
+    }
   }
 }
