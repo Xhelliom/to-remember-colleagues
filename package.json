@@ -24,6 +24,11 @@
     "dev:web": "pnpm --filter web dev",
     "dev": "pnpm run --parallel \"/dev:(server|web)/\"",
     "build": "pnpm --filter web build && pnpm --filter server build",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "test": "pnpm -r test",
+    "e2e": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.1"
   }
 }

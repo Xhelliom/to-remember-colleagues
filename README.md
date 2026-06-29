@@ -96,6 +96,29 @@ pnpm build          # build de production (client + serveur)
 pnpm typecheck      # vérification de types (TypeScript 7 / tsgo)
 pnpm db:up          # démarre PostgreSQL 18 (Docker)
 pnpm db:down        # arrête PostgreSQL
+pnpm test           # tests unitaires + intégration (Vitest, tous packages)
+pnpm e2e            # tests end-to-end (Playwright)
+```
+
+## Tests
+
+Les conventions et objectifs mesurables sont décrits dans [`CLAUDE.md`](CLAUDE.md).
+
+- **Unitaires (Vitest)** — fonctions pures : `web/src/ambiance.test.ts`,
+  `web/src/graves.test.ts`, `server/src/lib/slug.test.ts`,
+  `server/src/lib/random.test.ts`.
+- **Intégration (Vitest + `app.inject`)** — `server/src/app.test.ts` (santé, CORS,
+  sans base) et `server/src/app.integration.test.ts` (flux auth → entreprise →
+  collègue ; ignoré automatiquement si la base est injoignable).
+- **End-to-end (Playwright)** — `e2e/cemetery.spec.ts` : inscription → menu →
+  création d'un cimetière → entrée → rendu WebGL → ajout d'un collègue →
+  bascule d'ambiance Halloween. Utilise le Chromium pré-installé
+  (`PW_CHROME` pour surcharger le chemin) et démarre l'API + le client
+  automatiquement.
+
+```bash
+# Tout valider (definition of done)
+pnpm typecheck && pnpm test && pnpm build && pnpm e2e
 ```
 
 ## Ambiance dynamique

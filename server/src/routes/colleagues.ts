@@ -3,6 +3,7 @@ import { asc, eq } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import { colleagues, companies } from "../db/schema.ts";
 import { requireUser } from "../session.ts";
+import { newGraveSeed } from "../lib/random.ts";
 
 export async function colleagueRoutes(app: FastifyInstance) {
   // Liste des collègues (tombes) d'un cimetière.
@@ -62,7 +63,7 @@ export async function colleagueRoutes(app: FastifyInstance) {
         return reply.code(404).send({ error: "Cimetière introuvable." });
       }
 
-      const graveSeed = Math.floor(Math.random() * 1_000_000_000);
+      const graveSeed = newGraveSeed();
 
       const [created] = await db
         .insert(colleagues)

@@ -35,8 +35,7 @@ async function enterCemetery(company: Company) {
   cemetery.setCemetery(detail);
   showHud(company.name, company.id);
   cemetery.setActive(true);
-  // Petit délai pour laisser le HUD s'afficher avant la capture de la souris.
-  setTimeout(() => cemetery.requestLock(), 150);
+  // L'utilisateur clique sur l'invite pour capturer la souris et commencer à marcher.
 }
 
 setupAuth(async () => {

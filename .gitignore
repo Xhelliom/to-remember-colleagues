@@ -7,3 +7,10 @@ dist/
 pgdata/
 web/.vite/
 server/drizzle/meta/_journal.tmp
+
+# Tests
+test-results/
+playwright-report/
+blob-report/
+.playwright/
+coverage/

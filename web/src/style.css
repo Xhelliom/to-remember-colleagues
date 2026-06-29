@@ -301,6 +301,7 @@ textarea {
   right: 16px;
   display: flex;
   gap: 8px;
+  z-index: 12;
 }
 
 .controls-hint {
@@ -329,6 +330,7 @@ textarea {
   padding: 20px 24px;
   text-align: center;
   backdrop-filter: blur(4px);
+  z-index: 8;
 }
 
 .grave-panel-name {
@@ -361,6 +363,7 @@ textarea {
   border-radius: 12px;
   padding: 18px;
   pointer-events: auto;
+  z-index: 12;
 }
 
 .ambiance-panel h3 {
@@ -376,6 +379,7 @@ textarea {
   background: rgba(6, 7, 12, 0.45);
   cursor: pointer;
   pointer-events: auto;
+  z-index: 5;
 }
 
 .lock-prompt p {

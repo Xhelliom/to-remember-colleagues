@@ -3,21 +3,23 @@ import { asc, eq, sql } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import { companies, colleagues } from "../db/schema.ts";
 import { requireUser } from "../session.ts";
+import { slugify, uniqueSlug } from "../lib/slug.ts";
 
-function slugify(input: string): string {
-  return input
-    .normalize("NFD")
-    .replace(/\p{Diacritic}/gu, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 160);
-}
+const createCompanySchema = {
+  body: {
+    type: "object",
+    required: ["name"],
+    properties: {
+      name: { type: "string", minLength: 1, maxLength: 160 },
+      description: { type: "string", maxLength: 2000 },
+    },
+  },
+} as const;
 
 export async function companyRoutes(app: FastifyInstance) {
   // Liste des cimetières (entreprises) avec le nombre de tombes.
   app.get("/api/companies", async () => {
-    const rows = await db
+    return db
       .select({
         id: companies.id,
         name: companies.name,
@@ -30,46 +32,29 @@ export async function companyRoutes(app: FastifyInstance) {
       .leftJoin(colleagues, eq(colleagues.companyId, companies.id))
       .groupBy(companies.id)
       .orderBy(asc(companies.name));
-    return rows;
   });
 
   // Création d'un cimetière (auth requise).
-  app.post(
-    "/api/companies",
-    {
-      schema: {
-        body: {
-          type: "object",
-          required: ["name"],
-          properties: {
-            name: { type: "string", minLength: 1, maxLength: 160 },
-            description: { type: "string", maxLength: 2000 },
-          },
-        },
-      },
-    },
-    async (request, reply) => {
-      const user = await requireUser(request, reply);
-      if (!user) return;
+  app.post("/api/companies", { schema: createCompanySchema }, async (request, reply) => {
+    const user = await requireUser(request, reply);
+    if (!user) return;
 
-      const { name, description } = request.body as { name: string; description?: string };
-      let slug = slugify(name);
-      if (!slug) slug = "cimetiere";
+    const { name, description } = request.body as { name: string; description?: string };
+    const base = slugify(name);
 
-      // Garantit l'unicité du slug en cas de doublon.
-      const existing = await db
-        .select({ slug: companies.slug })
-        .from(companies)
-        .where(sql`${companies.slug} = ${slug} or ${companies.slug} like ${slug + "-%"}`);
-      if (existing.some((row) => row.slug === slug)) {
-        slug = `${slug}-${existing.length + 1}`;
-      }
+    const taken = await db
+      .select({ slug: companies.slug })
+      .from(companies)
+      .where(sql`${companies.slug} = ${base} or ${companies.slug} like ${base + "-%"}`);
+    const slug = uniqueSlug(
+      base,
+      taken.map((row) => row.slug),
+    );
 
-      const [created] = await db
-        .insert(companies)
-        .values({ name, description: description ?? null, slug, createdBy: user.id })
-        .returning();
-      return reply.code(201).send(created);
-    },
-  );
+    const [created] = await db
+      .insert(companies)
+      .values({ name, description: description ?? null, slug, createdBy: user.id })
+      .returning();
+    return reply.code(201).send(created);
+  });
 }
