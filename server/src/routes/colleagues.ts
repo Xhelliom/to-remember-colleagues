@@ -75,9 +75,16 @@ export async function colleagueRoutes(app: FastifyInstance) {
         departedOn?: string;
       };
 
-      const [company] = await db.select({ id: companies.id }).from(companies).where(eq(companies.id, id)).limit(1);
+      const [company] = await db
+        .select({ id: companies.id, closedAt: companies.closedAt })
+        .from(companies)
+        .where(eq(companies.id, id))
+        .limit(1);
       if (!company) {
         return reply.code(404).send({ error: "Cimetière introuvable." });
+      }
+      if (company.closedAt) {
+        return reply.code(403).send({ error: "Ce cimetière est fermé — aucune nouvelle tombe possible." });
       }
 
       const graveSeed = newGraveSeed();

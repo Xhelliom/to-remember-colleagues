@@ -24,6 +24,7 @@ export type Hub = {
 
 /** Enseigne d'entrée : nom de l'organisation, jauge de karma, statut. */
 function makeSignTexture(company: Company): THREE.CanvasTexture {
+  const closed = company.status === "Fermé";
   const w = 512;
   const h = 256;
   const canvas = document.createElement("canvas");
@@ -31,10 +32,10 @@ function makeSignTexture(company: Company): THREE.CanvasTexture {
   canvas.height = h;
   const ctx = canvas.getContext("2d")!;
 
-  // Plaque sombre gravée.
-  ctx.fillStyle = "#1c1a22";
+  // Plaque sombre gravée (rouge sombre si fermé).
+  ctx.fillStyle = closed ? "#1f0c0c" : "#1c1a22";
   ctx.fillRect(0, 0, w, h);
-  ctx.strokeStyle = "rgba(210,200,170,0.55)";
+  ctx.strokeStyle = closed ? "rgba(200,80,60,0.7)" : "rgba(210,200,170,0.55)";
   ctx.lineWidth = 6;
   ctx.strokeRect(12, 12, w - 24, h - 24);
 
@@ -59,10 +60,16 @@ function makeSignTexture(company: Company): THREE.CanvasTexture {
     y += 50;
   }
 
-  // Statut.
-  ctx.font = "italic 26px 'EB Garamond', Georgia, serif";
-  ctx.fillStyle = "#b9b3a0";
-  ctx.fillText(`${company.status} · ${company.graveCount} tombe${company.graveCount > 1 ? "s" : ""}`, w / 2, 168);
+  // Statut (« FERMÉ » mis en valeur pour les cimetières fermés).
+  ctx.font = closed ? "700 28px 'Cinzel', Georgia, serif" : "italic 26px 'EB Garamond', Georgia, serif";
+  ctx.fillStyle = closed ? "#e06050" : "#b9b3a0";
+  ctx.fillText(
+    closed
+      ? `⛔ FERMÉ · ${company.graveCount} tombe${company.graveCount > 1 ? "s" : ""}`
+      : `${company.status} · ${company.graveCount} tombe${company.graveCount > 1 ? "s" : ""}`,
+    w / 2,
+    168,
+  );
 
   // Jauge de karma : barre centrée, verte si positif, rouge si négatif.
   const karma = company.karma;
@@ -87,24 +94,45 @@ function makeSignTexture(company: Company): THREE.CanvasTexture {
 }
 
 function buildPortal(company: Company, side: number, z: number): THREE.Group {
+  const closed = company.status === "Fermé";
   const g = new THREE.Group();
   const x = side * PORTAL_X;
   g.position.set(x, 0, z);
   // Le portail fait face à l'axe de la route (rotation vers le centre).
   g.rotation.y = side < 0 ? Math.PI / 2 : -Math.PI / 2;
 
-  const stoneMat = new THREE.MeshStandardMaterial({ color: 0x4a4640, roughness: 0.85, metalness: 0.05 });
+  const stoneColor = closed ? 0x3a2f2f : 0x4a4640;
+  const stoneMat = new THREE.MeshStandardMaterial({ color: stoneColor, roughness: 0.9, metalness: 0.05 });
   const pillarGeo = new THREE.CylinderGeometry(0.32, 0.4, 3.4, 8);
-  for (const px of [-1.6, 1.6]) {
-    const pillar = new THREE.Mesh(pillarGeo, stoneMat);
-    pillar.position.set(px, 1.7, 0);
-    pillar.castShadow = true;
-    g.add(pillar);
-  }
+
+  // Pilier gauche : légèrement incliné si fermé (barrière cassée).
+  const leftPillar = new THREE.Mesh(pillarGeo, stoneMat);
+  leftPillar.position.set(-1.6, closed ? 1.5 : 1.7, 0);
+  if (closed) leftPillar.rotation.z = 0.18;
+  leftPillar.castShadow = true;
+  g.add(leftPillar);
+
+  // Pilier droit : normal.
+  const rightPillar = new THREE.Mesh(pillarGeo, stoneMat);
+  rightPillar.position.set(1.6, 1.7, 0);
+  rightPillar.castShadow = true;
+  g.add(rightPillar);
+
+  // Linteau : tombé si fermé (abaissé et incliné).
   const lintel = new THREE.Mesh(new THREE.BoxGeometry(4, 0.5, 0.6), stoneMat);
-  lintel.position.set(0, 3.5, 0);
+  lintel.position.set(closed ? -0.3 : 0, closed ? 2.4 : 3.5, 0);
+  if (closed) lintel.rotation.z = -0.22;
   lintel.castShadow = true;
   g.add(lintel);
+
+  // Fragment de débris au sol si fermé.
+  if (closed) {
+    const debris = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.35, 0.55), stoneMat);
+    debris.position.set(-1.2, 0.18, 0.3);
+    debris.rotation.set(0.1, 0.4, 0.15);
+    debris.castShadow = true;
+    g.add(debris);
+  }
 
   // Enseigne (lisible de nuit : matériau non éclairé).
   const signMat = new THREE.MeshBasicMaterial({ map: makeSignTexture(company), transparent: false });

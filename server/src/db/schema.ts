@@ -9,6 +9,8 @@ export const companies = pgTable("companies", {
   name: varchar("name", { length: 160 }).notNull(),
   slug: varchar("slug", { length: 180 }).notNull().unique(),
   description: text("description"),
+  // null = ouvert ; non-null = fermé (issue #6 cycle de vie)
+  closedAt: timestamp("closed_at", { withTimezone: true }),
   createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });

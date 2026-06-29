@@ -5,6 +5,7 @@ import { companies, colleagues } from "../db/schema.ts";
 import { requireUser } from "../session.ts";
 import { slugify, uniqueSlug } from "../lib/slug.ts";
 import { companyStatus } from "../lib/company-status.ts";
+import { ID_PARAM_SCHEMA } from "../lib/schemas.ts";
 
 const createCompanySchema = {
   body: {
@@ -26,6 +27,7 @@ export async function companyRoutes(app: FastifyInstance) {
         name: companies.name,
         slug: companies.slug,
         description: companies.description,
+        closedAt: companies.closedAt,
         createdAt: companies.createdAt,
         graveCount: sql<number>`count(${colleagues.id})::int`,
         // Karma = somme des votes des tombes (axe 2, issue #25).
@@ -39,9 +41,9 @@ export async function companyRoutes(app: FastifyInstance) {
       .orderBy(asc(companies.name));
 
     const now = Date.now();
-    return rows.map(({ lastBurial, ...row }) => ({
+    return rows.map(({ lastBurial, closedAt, ...row }) => ({
       ...row,
-      status: companyStatus(row.graveCount, lastBurial, now),
+      status: companyStatus(row.graveCount, lastBurial, now, closedAt?.toISOString()),
     }));
   });
 
@@ -68,4 +70,40 @@ export async function companyRoutes(app: FastifyInstance) {
       .returning();
     return reply.code(201).send(created);
   });
+
+  // Fermeture d'un cimetière (issue #6) : plus d'ajout de tombe possible.
+  app.post(
+    "/api/companies/:id/close",
+    { schema: { params: ID_PARAM_SCHEMA } },
+    async (request, reply) => {
+      const user = await requireUser(request, reply);
+      if (!user) return;
+      const { id } = request.params as { id: string };
+      const [row] = await db
+        .update(companies)
+        .set({ closedAt: new Date() })
+        .where(eq(companies.id, id))
+        .returning({ id: companies.id });
+      if (!row) return reply.code(404).send({ error: "Cimetière introuvable." });
+      return { closed: true };
+    },
+  );
+
+  // Réouverture d'un cimetière fermé (issue #6).
+  app.post(
+    "/api/companies/:id/reopen",
+    { schema: { params: ID_PARAM_SCHEMA } },
+    async (request, reply) => {
+      const user = await requireUser(request, reply);
+      if (!user) return;
+      const { id } = request.params as { id: string };
+      const [row] = await db
+        .update(companies)
+        .set({ closedAt: null })
+        .where(eq(companies.id, id))
+        .returning({ id: companies.id });
+      if (!row) return reply.code(404).send({ error: "Cimetière introuvable." });
+      return { closed: false };
+    },
+  );
 }

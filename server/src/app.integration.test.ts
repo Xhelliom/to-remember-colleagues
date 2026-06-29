@@ -155,4 +155,46 @@ describe.skipIf(!online)("API métier (avec base de données)", () => {
     });
     expect(res.statusCode).toBe(401);
   });
+
+  it("ferme un cimetière et bloque l'ajout de tombe (issue #6)", async () => {
+    const close = await app.inject({
+      method: "POST",
+      url: `/api/companies/${companyId}/close`,
+      headers: { cookie },
+    });
+    expect(close.statusCode).toBe(200);
+    expect(close.json().closed).toBe(true);
+
+    // Le statut renvoyé par la liste des entreprises doit être "Fermé".
+    const list = await app.inject({ method: "GET", url: "/api/companies" });
+    const found = (list.json() as { id: string; status: string }[]).find((c) => c.id === companyId);
+    expect(found?.status).toBe("Fermé");
+
+    // Ajout de tombe refusé (403).
+    const add = await app.inject({
+      method: "POST",
+      url: `/api/companies/${companyId}/colleagues`,
+      headers: { cookie },
+      payload: { name: "Bloqué", quote: "Ne peut pas être inhumé." },
+    });
+    expect(add.statusCode).toBe(403);
+  });
+
+  it("réouvre le cimetière et permet à nouveau l'ajout (issue #6)", async () => {
+    const reopen = await app.inject({
+      method: "POST",
+      url: `/api/companies/${companyId}/reopen`,
+      headers: { cookie },
+    });
+    expect(reopen.statusCode).toBe(200);
+    expect(reopen.json().closed).toBe(false);
+
+    const add = await app.inject({
+      method: "POST",
+      url: `/api/companies/${companyId}/colleagues`,
+      headers: { cookie },
+      payload: { name: "Réintégré", quote: "Le cimetière est rouvert." },
+    });
+    expect(add.statusCode).toBe(201);
+  });
 });

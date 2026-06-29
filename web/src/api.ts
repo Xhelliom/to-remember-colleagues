@@ -77,6 +77,24 @@ export async function createColleague(
   return json<Colleague>(res);
 }
 
+// --- Cycle de vie (#6) ---
+
+export async function closeCompany(companyId: string): Promise<void> {
+  const res = await fetch(`/api/companies/${companyId}/close`, {
+    method: "POST",
+    credentials: "include",
+  });
+  await json<unknown>(res);
+}
+
+export async function reopenCompany(companyId: string): Promise<void> {
+  const res = await fetch(`/api/companies/${companyId}/reopen`, {
+    method: "POST",
+    credentials: "include",
+  });
+  await json<unknown>(res);
+}
+
 // --- Livre d'or (#9) ---
 
 export async function getGraveMessages(colleagueId: string): Promise<GraveMessage[]> {

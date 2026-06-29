@@ -219,16 +219,16 @@ function showGrave(colleague: Colleague | null) {
 }
 
 /** Boutons réservés au cimetière (sans objet dans le hub). */
-function setCemeteryButtons(visible: boolean) {
-  addGraveBtn.classList.toggle("hidden", !visible);
+function setCemeteryButtons(visible: boolean, closed = false) {
+  addGraveBtn.classList.toggle("hidden", !visible || closed);
   backRoadBtn.classList.toggle("hidden", !visible);
 }
 
-export function showHud(companyName: string, companyId: string, karma: number) {
+export function showHud(companyName: string, companyId: string, karma: number, closed = false) {
   currentCompanyId = companyId;
   nameEl.textContent = companyName;
   lockPromptText.textContent = "Cliquez pour entrer dans le cimetière";
-  setCemeteryButtons(true);
+  setCemeteryButtons(true, closed);
   portalPrompt.classList.add("hidden");
   updateKarma(karma);
   hudEl.classList.remove("hidden");

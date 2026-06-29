@@ -37,7 +37,7 @@ async function enterCemetery(company: Company) {
   const detail = await getColleagues(company.id);
   cemetery.setCemetery(detail);
   const karma = detail.karma;
-  showHud(company.name, company.id, karma);
+  showHud(company.name, company.id, karma, company.status === "Fermé");
   cemetery.setActive(true);
   // L'utilisateur clique sur l'invite pour capturer la souris et commencer à marcher.
 }

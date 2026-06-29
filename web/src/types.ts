@@ -4,7 +4,7 @@ export type User = {
   name: string;
 };
 
-export type CompanyStatus = "Naissant" | "Ouvert" | "En sommeil";
+export type CompanyStatus = "Naissant" | "Ouvert" | "En sommeil" | "Fermé";
 
 export type Company = {
   id: string;
