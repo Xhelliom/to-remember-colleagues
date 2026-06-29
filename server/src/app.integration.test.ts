@@ -235,6 +235,34 @@ describe.skipIf(!online)("API métier (avec base de données)", () => {
     expect(add.statusCode).toBe(201);
   });
 
+  it("ajoute une tombe en construction (départ futur) et vérifie le flag (issue #21)", async () => {
+    const futureDate = new Date(Date.now() + 30 * 24 * 3600 * 1000).toISOString().slice(0, 10);
+    const add = await app.inject({
+      method: "POST",
+      url: `/api/companies/${companyId}/colleagues`,
+      headers: { cookie },
+      payload: { name: "Futur Partant", quote: "Je pars bientôt.", departedOn: futureDate },
+    });
+    expect(add.statusCode).toBe(201);
+    const constructionId = add.json().id as string;
+
+    const list = await app.inject({
+      method: "GET",
+      url: `/api/companies/${companyId}/colleagues`,
+      headers: { cookie },
+    });
+    const found = (list.json().colleagues as { id: string; construction: boolean }[]).find(
+      (c) => c.id === constructionId,
+    );
+    expect(found?.construction).toBe(true);
+
+    // Tombe avec date passée : construction=false.
+    expect(
+      (list.json().colleagues as { id: string; construction: boolean }[]).find((c) => c.id === colleagueId)
+        ?.construction,
+    ).toBe(false);
+  });
+
   it("dépose une offrande et récupère le compteur mis à jour (issue #7)", async () => {
     const res = await app.inject({
       method: "POST",

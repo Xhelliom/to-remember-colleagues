@@ -36,6 +36,8 @@ export type Colleague = {
   createdAt: string;
   /** Offrandes actives déposées sur la tombe (issue #7). */
   offeringCounts: OfferingCounts;
+  /** Vrai si le départ est annoncé mais pas encore arrivé (issue #21). */
+  construction: boolean;
 };
 
 export type CompanyDetail = {

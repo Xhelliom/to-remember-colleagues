@@ -67,19 +67,24 @@ export async function colleagueRoutes(app: FastifyInstance) {
     // Vérifier si l'utilisateur courant est membre (issue #22).
     const isMember = await isCemeteryMember(id, request);
 
-    const enriched = rows.map((r) => ({
-      id: r.id,
-      // Noms anonymisés pour les non-membres (issue #22).
-      name: isMember ? r.name : deterministicAnagram(r.name),
-      quote: r.quote,
-      departedOn: r.departedOn,
-      graveSeed: r.graveSeed,
-      voteScore: r.voteScore,
-      // Maintenance effective = base décroissante depuis la dernière action (issue #14).
-      maintenance: effectiveMaintenance(r.maintenance, r.maintainedAt ?? r.createdAt, now),
-      createdAt: r.createdAt,
-      offeringCounts: counts.get(r.id) ?? { flower: 0, candle: 0, stone: 0 },
-    }));
+    const enriched = rows.map((r) => {
+      const construction = r.departedOn !== null && new Date(r.departedOn) > now;
+      return {
+        id: r.id,
+        // Noms anonymisés pour les non-membres (issue #22).
+        name: isMember ? r.name : deterministicAnagram(r.name),
+        quote: r.quote,
+        departedOn: r.departedOn,
+        graveSeed: r.graveSeed,
+        voteScore: r.voteScore,
+        // Maintenance effective = base décroissante depuis la dernière action (issue #14).
+        maintenance: effectiveMaintenance(r.maintenance, r.maintainedAt ?? r.createdAt, now),
+        createdAt: r.createdAt,
+        offeringCounts: counts.get(r.id) ?? { flower: 0, candle: 0, stone: 0 },
+        // Départ annoncé mais pas encore survenu (issue #21).
+        construction,
+      };
+    });
 
     return { company, colleagues: enriched, karma, anonymized: !isMember };
   });
@@ -141,7 +146,9 @@ export async function colleagueRoutes(app: FastifyInstance) {
       // L'ajouteur devient membre du cimetière (issue #22).
       await db.insert(companyMembers).values({ companyId: id, userId: user.id }).onConflictDoNothing();
 
-      return reply.code(201).send(created);
+      const now = new Date();
+      const construction = created!.departedOn !== null && new Date(created!.departedOn) > now;
+      return reply.code(201).send({ ...created, construction, offeringCounts: { flower: 0, candle: 0, stone: 0 } });
     },
   );
 
@@ -180,6 +187,7 @@ export async function colleagueRoutes(app: FastifyInstance) {
       .where(eq(colleagues.companyId, row.companyId));
 
     const isMember = await isCemeteryMember(row.companyId, request);
+    const construction = row.departedOn !== null && new Date(row.departedOn) > now;
 
     return {
       id: row.id,
@@ -191,6 +199,7 @@ export async function colleagueRoutes(app: FastifyInstance) {
       maintenance: effectiveMaintenance(row.maintenance, row.maintainedAt ?? row.createdAt, now),
       createdAt: row.createdAt,
       offeringCounts: counts.get(id) ?? { flower: 0, candle: 0, stone: 0 },
+      construction,
       company: { id: row.companyId, name: row.companyName, slug: row.companySlug, closed: row.companyClosed !== null },
       karma: karmaRow?.karma ?? 0,
       anonymized: !isMember,

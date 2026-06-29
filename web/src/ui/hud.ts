@@ -49,6 +49,21 @@ function formatDate(iso: string | null): string {
   return d.toLocaleDateString("fr-FR", { year: "numeric", month: "long", day: "numeric" });
 }
 
+/** Compte à rebours en jours jusqu'à une date future. */
+function daysUntil(iso: string): number {
+  const diff = new Date(iso).getTime() - Date.now();
+  return Math.max(0, Math.ceil(diff / (24 * 3600 * 1000)));
+}
+
+function formatGraveDates(colleague: Colleague): string {
+  if (colleague.construction && colleague.departedOn) {
+    const days = daysUntil(colleague.departedOn);
+    const dateStr = formatDate(colleague.departedOn);
+    return days > 0 ? `Départ prévu le ${dateStr} · J-${days}` : `Départ le ${dateStr}`;
+  }
+  return colleague.departedOn ? `Parti·e le ${formatDate(colleague.departedOn)}` : "";
+}
+
 function updateVoteButtons(vote: -1 | 0 | 1, score: number) {
   myVote = vote;
   voteScoreEl.textContent = String(score);
@@ -290,8 +305,8 @@ function showGrave(colleague: Colleague | null) {
     return;
   }
   graveName.textContent = colleague.name;
-  graveDates.textContent = colleague.departedOn ? `Parti·e le ${formatDate(colleague.departedOn)}` : "";
-  graveQuote.textContent = `« ${colleague.quote} »`;
+  graveDates.textContent = formatGraveDates(colleague);
+  graveQuote.textContent = colleague.construction ? "🚧 Tombe en construction…" : `« ${colleague.quote} »`;
   voteScoreEl.textContent = String(colleague.voteScore);
   voteUpBtn.classList.remove("active-up");
   voteDownBtn.classList.remove("active-down");

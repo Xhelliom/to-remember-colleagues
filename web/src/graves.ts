@@ -94,6 +94,89 @@ function makeNameTexture(name: string, stoneHex: number, wear: number, haunt: nu
 
 const TYPES = ["round", "rect", "cross"] as const;
 
+const WOOD_COLOR = 0x8b6340;
+const TARP_COLOR = 0x4a7a6b;
+const DIRT_COLOR = 0x6b4e2e;
+
+/**
+ * Construit un chantier futur : stèle brute non gravée, terre fraîche,
+ * échafaudage en bois et bâche (issue #21).
+ */
+function createConstructionGrave(colleague: Colleague, rand: () => number): THREE.Group {
+  const group = new THREE.Group();
+  const woodMat = new THREE.MeshStandardMaterial({ color: WOOD_COLOR, roughness: 0.9 });
+  const tarpMat = new THREE.MeshStandardMaterial({ color: TARP_COLOR, roughness: 0.8, side: THREE.DoubleSide });
+  const stoneMat = new THREE.MeshStandardMaterial({ color: 0xb0a898, roughness: 0.95 });
+  const dirtMat = new THREE.MeshStandardMaterial({ color: DIRT_COLOR, roughness: 1 });
+
+  // Terre fraîche (monticule plat).
+  const dirt = new THREE.Mesh(new THREE.BoxGeometry(1.1, 0.06, 0.7), dirtMat);
+  dirt.position.y = 0.03;
+  group.add(dirt);
+
+  // Socle brut non taillé.
+  const base = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.22, 0.7), stoneMat);
+  base.position.y = 0.11;
+  base.castShadow = true;
+  group.add(base);
+
+  // Stèle brute — aucun texte, juste la forme rectangulaire.
+  const width = 0.9 + rand() * 0.2;
+  const height = 1.1 + rand() * 0.5;
+  const stele = new THREE.Mesh(new THREE.BoxGeometry(width, height, 0.18), stoneMat);
+  stele.position.y = 0.22 + height / 2;
+  stele.castShadow = true;
+  group.add(stele);
+
+  // Poteaux d'échafaudage (4 coins).
+  const poleH = height + 0.8;
+  for (const [sx, sz] of [[-0.6, 0.25], [0.6, 0.25], [-0.6, -0.25], [0.6, -0.25]] as [number, number][]) {
+    const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, poleH, 5), woodMat);
+    pole.position.set(sx, poleH / 2, sz);
+    group.add(pole);
+  }
+
+  // Traverse horizontale.
+  const crossbar = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.04, 0.04), woodMat);
+  crossbar.position.set(0, poleH - 0.1, 0);
+  group.add(crossbar);
+
+  // Bâche inclinée par-dessus la stèle.
+  const tarp = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 0.9), tarpMat);
+  tarp.rotation.x = -0.25;
+  tarp.position.set(0, poleH - 0.15, 0.1);
+  group.add(tarp);
+
+  // Panneau « En construction » sur la stèle.
+  const signCanvas = document.createElement("canvas");
+  signCanvas.width = 256;
+  signCanvas.height = 128;
+  const ctx = signCanvas.getContext("2d")!;
+  ctx.fillStyle = "#f5e6c8";
+  ctx.fillRect(0, 0, 256, 128);
+  ctx.strokeStyle = "#8b6340";
+  ctx.lineWidth = 6;
+  ctx.strokeRect(4, 4, 248, 120);
+  ctx.fillStyle = "#3a2a14";
+  ctx.font = "bold 22px 'Cinzel', serif";
+  ctx.textAlign = "center";
+  ctx.fillText("En construction", 128, 55);
+  ctx.font = "italic 18px 'EB Garamond', serif";
+  ctx.fillText(colleague.name, 128, 90);
+  const signTex = new THREE.CanvasTexture(signCanvas);
+  signTex.colorSpace = THREE.SRGBColorSpace;
+  const sign = new THREE.Mesh(
+    new THREE.PlaneGeometry(width * 0.85, height * 0.3),
+    new THREE.MeshStandardMaterial({ map: signTex, roughness: 0.8 }),
+  );
+  sign.position.set(0, 0.22 + height * 0.35, 0.1);
+  group.add(sign);
+
+  group.rotation.y = (rand() - 0.5) * 0.2;
+  group.userData.colleague = colleague;
+  return group;
+}
+
 /**
  * Construit une tombe (socle + pierre gravée) pour un collègue.
  *
@@ -108,6 +191,10 @@ const TYPES = ["round", "rect", "cross"] as const;
  */
 export function createGrave(colleague: Colleague, graveHex: number, axes: GraveAxes): THREE.Group {
   const rand = seededRandom(colleague.graveSeed);
+
+  // Tombe en construction : rendu chantier différent (issue #21).
+  if (axes.construction) return createConstructionGrave(colleague, rand);
+
   const group = new THREE.Group();
 
   const { age, vote, maintenance } = axes;
