@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { asc, eq, sql } from "drizzle-orm";
 import { db } from "../db/client.ts";
-import { companies, colleagues } from "../db/schema.ts";
+import { companies, colleagues, companyMembers } from "../db/schema.ts";
 import { requireUser } from "../session.ts";
 import { slugify, uniqueSlug } from "../lib/slug.ts";
 import { companyStatus } from "../lib/company-status.ts";
@@ -68,6 +68,10 @@ export async function companyRoutes(app: FastifyInstance) {
       .insert(companies)
       .values({ name, description: description ?? null, slug, createdBy: user.id })
       .returning();
+
+    // Le créateur devient automatiquement membre (issue #22).
+    await db.insert(companyMembers).values({ companyId: created.id, userId: user.id }).onConflictDoNothing();
+
     return reply.code(201).send(created);
   });
 

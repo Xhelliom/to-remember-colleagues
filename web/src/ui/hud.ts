@@ -33,6 +33,7 @@ const offeringCountsEl = document.getElementById("offering-counts") as HTMLDivEl
 const karmaGauge = document.getElementById("karma-gauge") as HTMLDivElement;
 const karmaLabel = document.getElementById("karma-label") as HTMLSpanElement;
 const karmaBar = document.getElementById("karma-bar") as HTMLDivElement;
+const anonNotice = document.getElementById("anon-notice") as HTMLDivElement;
 
 let currentCompanyId: string | null = null;
 let focusedColleague: Colleague | null = null;
@@ -292,13 +293,14 @@ function setCemeteryButtons(visible: boolean, closed = false) {
   backRoadBtn.classList.toggle("hidden", !visible);
 }
 
-export function showHud(companyName: string, companyId: string, karma: number, closed = false) {
+export function showHud(companyName: string, companyId: string, karma: number, closed = false, anonymized = false) {
   currentCompanyId = companyId;
   nameEl.textContent = companyName;
   lockPromptText.textContent = "Cliquez pour entrer dans le cimetière";
   setCemeteryButtons(true, closed);
   portalPrompt.classList.add("hidden");
   updateKarma(karma);
+  anonNotice.classList.toggle("hidden", !anonymized);
   hudEl.classList.remove("hidden");
 }
 
@@ -318,5 +320,6 @@ export function hideHud() {
   gravePanel.classList.add("hidden");
   portalPrompt.classList.add("hidden");
   karmaGauge.classList.add("hidden");
+  anonNotice.classList.add("hidden");
   visitorCount.textContent = "";
 }

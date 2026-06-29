@@ -1,12 +1,13 @@
 import type { FastifyInstance } from "fastify";
-import { asc, eq } from "drizzle-orm";
+import { and, asc, eq } from "drizzle-orm";
 import { db } from "../db/client.ts";
-import { colleagues, companies } from "../db/schema.ts";
-import { requireUser } from "../session.ts";
+import { colleagues, companies, companyMembers } from "../db/schema.ts";
+import { getSessionUser, requireUser } from "../session.ts";
 import { newGraveSeed } from "../lib/random.ts";
 import { ID_PARAM_SCHEMA } from "../lib/schemas.ts";
 import { activeOfferingCounts } from "../lib/offerings.ts";
 import { effectiveMaintenance } from "../lib/maintenance.ts";
+import { deterministicAnagram } from "../lib/anagram.ts";
 
 export async function colleagueRoutes(app: FastifyInstance) {
   // Liste des collègues (tombes) d'un cimetière.
@@ -50,9 +51,23 @@ export async function colleagueRoutes(app: FastifyInstance) {
     // Offrandes actives + entretien effectif (issues #7 et #14).
     const now = new Date();
     const counts = await activeOfferingCounts(rows.map((r) => r.id), now);
+
+    // Vérifier si l'utilisateur courant est membre (issue #22).
+    const sessionUser = await getSessionUser(request);
+    const isMember = sessionUser
+      ? (
+          await db
+            .select({ id: companyMembers.id })
+            .from(companyMembers)
+            .where(and(eq(companyMembers.companyId, id), eq(companyMembers.userId, sessionUser.id)))
+            .limit(1)
+        ).length > 0
+      : false;
+
     const enriched = rows.map((r) => ({
       id: r.id,
-      name: r.name,
+      // Noms anonymisés pour les non-membres (issue #22).
+      name: isMember ? r.name : deterministicAnagram(r.name),
       quote: r.quote,
       departedOn: r.departedOn,
       graveSeed: r.graveSeed,
@@ -63,7 +78,7 @@ export async function colleagueRoutes(app: FastifyInstance) {
       offeringCounts: counts.get(r.id) ?? { flower: 0, candle: 0, stone: 0 },
     }));
 
-    return { company, colleagues: enriched, karma };
+    return { company, colleagues: enriched, karma, anonymized: !isMember };
   });
 
   // Ajout d'un collègue (auth requise).
@@ -119,6 +134,9 @@ export async function colleagueRoutes(app: FastifyInstance) {
           addedBy: user.id,
         })
         .returning();
+
+      // L'ajouteur devient membre du cimetière (issue #22).
+      await db.insert(companyMembers).values({ companyId: id, userId: user.id }).onConflictDoNothing();
 
       return reply.code(201).send(created);
     },

@@ -36,8 +36,7 @@ async function enterCemetery(company: Company) {
   // Chargement à la demande des tombes de ce cimetière (issue #5).
   const detail = await getColleagues(company.id);
   cemetery.setCemetery(detail);
-  const karma = detail.karma;
-  showHud(company.name, company.id, karma, company.status === "Fermé");
+  showHud(company.name, company.id, detail.karma, company.status === "Fermé", detail.anonymized);
   cemetery.setActive(true);
   // L'utilisateur clique sur l'invite pour capturer la souris et commencer à marcher.
 }

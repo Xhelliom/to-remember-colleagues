@@ -92,8 +92,28 @@ export const graveOfferings = pgTable(
   (table) => [index("grave_offerings_colleague_idx").on(table.colleagueId)],
 );
 
+// Membres d'un cimetière (issue #22 : anonymisation des noms pour les non-membres).
+export const companyMembers = pgTable(
+  "company_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    companyId: uuid("company_id")
+      .notNull()
+      .references(() => companies.id, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    joinedAt: timestamp("joined_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("company_members_company_idx").on(table.companyId),
+    unique("company_members_unique").on(table.companyId, table.userId),
+  ],
+);
+
 export type Company = typeof companies.$inferSelect;
 export type Colleague = typeof colleagues.$inferSelect;
 export type GraveMessage = typeof graveMessages.$inferSelect;
 export type GraveVote = typeof graveVotes.$inferSelect;
 export type GraveOffering = typeof graveOfferings.$inferSelect;
+export type CompanyMember = typeof companyMembers.$inferSelect;

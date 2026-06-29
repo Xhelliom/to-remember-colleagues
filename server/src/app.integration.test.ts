@@ -81,7 +81,12 @@ describe.skipIf(!online)("API métier (avec base de données)", () => {
     expect(add.statusCode).toBe(201);
     colleagueId = add.json().id as string;
 
-    const list = await app.inject({ method: "GET", url: `/api/companies/${companyId}/colleagues` });
+    // En tant que membre, les vrais noms sont visibles (issue #22).
+    const list = await app.inject({
+      method: "GET",
+      url: `/api/companies/${companyId}/colleagues`,
+      headers: { cookie },
+    });
     expect(list.statusCode).toBe(200);
     const body = list.json();
     expect(body.colleagues).toHaveLength(1);
@@ -89,6 +94,23 @@ describe.skipIf(!online)("API métier (avec base de données)", () => {
     expect(body.colleagues[0].quote).toContain("commit");
     // Karma inclus dans la réponse (issue #3).
     expect(typeof body.karma).toBe("number");
+    expect(body.anonymized).toBe(false);
+  });
+
+  it("anonymise les noms pour les non-membres (issue #22)", async () => {
+    const list = await app.inject({ method: "GET", url: `/api/companies/${companyId}/colleagues` });
+    expect(list.statusCode).toBe(200);
+    const body = list.json();
+    expect(body.anonymized).toBe(true);
+    // Le nom est un anagramme déterministe, pas le vrai nom.
+    expect(body.colleagues[0].name).not.toBe("Jean Test");
+    // Les lettres de chaque mot sont identiques (anagramme par mot).
+    const sorted = (s: string) => s.split("").sort().join("");
+    const origWords = "Jean Test".split(" ");
+    const anonWords = (body.colleagues[0].name as string).split(" ");
+    for (let i = 0; i < origWords.length; i++) {
+      expect(sorted(anonWords[i]!)).toBe(sorted(origWords[i]!));
+    }
   });
 
   it("vote upvote sur une tombe, met à jour le voteScore (issue #2)", async () => {

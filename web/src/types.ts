@@ -44,6 +44,8 @@ export type CompanyDetail = {
   colleagues: Colleague[];
   /** Karma = somme des voteScores des tombes (issue #3). */
   karma: number;
+  /** Vrai si les noms sont anonymisés — l'utilisateur n'est pas membre (issue #22). */
+  anonymized: boolean;
 };
 
 /** Message laissé dans le livre d'or d'une tombe (issue #9). */

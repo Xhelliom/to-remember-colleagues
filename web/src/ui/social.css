@@ -63,6 +63,23 @@
   letter-spacing: 0.02em;
 }
 
+/* --- Anonymisation (issue #22) --- */
+.anon-notice {
+  position: fixed;
+  top: 58px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: rgba(8, 9, 14, 0.72);
+  color: var(--muted);
+  font-size: 0.8rem;
+  padding: 5px 14px;
+  border-radius: 20px;
+  border: 1px solid var(--panel-border);
+  z-index: 8;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 /* --- Guestbook (issue #9) --- */
 .guestbook-overlay {
   z-index: 35;
