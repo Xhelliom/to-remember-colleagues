@@ -15,6 +15,8 @@ export type Company = {
   graveCount: number;
   /** Karma = somme des votes des tombes (axe 2). Affiché sur l'enseigne d'entrée. */
   karma: number;
+  /** Offrandes actives sur l'ensemble des tombes (issue #20). */
+  offeringCount: number;
   /** Statut d'activité affiché à l'entrée (issue #5). */
   status: CompanyStatus;
 };

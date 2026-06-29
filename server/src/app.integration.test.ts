@@ -309,6 +309,14 @@ describe.skipIf(!online)("API métier (avec base de données)", () => {
     expect(res.statusCode).toBe(401);
   });
 
+  it("inclut offeringCount dans la liste des entreprises (issue #20)", async () => {
+    const res = await app.inject({ method: "GET", url: "/api/companies" });
+    expect(res.statusCode).toBe(200);
+    const company = (res.json() as { id: string; offeringCount: number }[]).find((c) => c.id === companyId);
+    expect(typeof company?.offeringCount).toBe("number");
+    expect(company!.offeringCount).toBeGreaterThanOrEqual(1);
+  });
+
   it("entretient une tombe et augmente son niveau de soin (issue #14)", async () => {
     // La maintenance effective décroît depuis la création ; un entretien l'augmente.
     const before = await app.inject({

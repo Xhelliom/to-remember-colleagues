@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { asc, eq, sql } from "drizzle-orm";
 import { db } from "../db/client.ts";
-import { companies, colleagues, companyMembers } from "../db/schema.ts";
+import { companies, colleagues, companyMembers, graveOfferings } from "../db/schema.ts";
 import { requireUser } from "../session.ts";
 import { slugify, uniqueSlug } from "../lib/slug.ts";
 import { companyStatus } from "../lib/company-status.ts";
@@ -19,7 +19,7 @@ const createCompanySchema = {
 } as const;
 
 export async function companyRoutes(app: FastifyInstance) {
-  // Liste des cimetières (entreprises) avec nombre de tombes, karma et statut.
+  // Liste des cimetières (entreprises) avec nombre de tombes, karma, offrandes et statut.
   app.get("/api/companies", async () => {
     const rows = await db
       .select({
@@ -29,11 +29,18 @@ export async function companyRoutes(app: FastifyInstance) {
         description: companies.description,
         closedAt: companies.closedAt,
         createdAt: companies.createdAt,
-        graveCount: sql<number>`count(${colleagues.id})::int`,
+        graveCount: sql<number>`count(distinct ${colleagues.id})::int`,
         // Karma = somme des votes des tombes (axe 2, issue #25).
         karma: sql<number>`coalesce(sum(${colleagues.voteScore}), 0)::int`,
         // Dernière inhumation, pour dériver le statut d'activité (issue #5).
         lastBurial: sql<string | null>`max(${colleagues.createdAt})`,
+        // Offrandes actives sur l'ensemble des tombes (issue #20 : classements).
+        offeringCount: sql<number>`(
+          select count(go.id)::int from ${graveOfferings} go
+          inner join ${colleagues} c2 on c2.id = go.colleague_id
+          where c2.company_id = ${companies.id}
+          and (go.expires_at is null or go.expires_at > now())
+        )`,
       })
       .from(companies)
       .leftJoin(colleagues, eq(colleagues.companyId, companies.id))
