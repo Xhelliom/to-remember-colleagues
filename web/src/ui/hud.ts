@@ -1,6 +1,6 @@
 import "./social.css";
 import type { Cemetery } from "../cemetery.ts";
-import { addOffering, createColleague, getMyVote, voteColleague } from "../api.ts";
+import { addOffering, createColleague, getMyVote, maintainColleague, voteColleague } from "../api.ts";
 import type { Colleague, OfferingCounts } from "../types.ts";
 import type { SeasonSetting, TimeSetting } from "../ambiance.ts";
 import { openDialog } from "./dialog.ts";
@@ -28,6 +28,7 @@ const voteDownBtn = document.getElementById("vote-down-btn") as HTMLButtonElemen
 const voteScoreEl = document.getElementById("vote-score") as HTMLSpanElement;
 const guestbookBtn = document.getElementById("guestbook-btn") as HTMLButtonElement;
 const offeringBtn = document.getElementById("offering-btn") as HTMLButtonElement;
+const maintainBtn = document.getElementById("maintain-btn") as HTMLButtonElement;
 const offeringCountsEl = document.getElementById("offering-counts") as HTMLDivElement;
 const karmaGauge = document.getElementById("karma-gauge") as HTMLDivElement;
 const karmaLabel = document.getElementById("karma-label") as HTMLSpanElement;
@@ -206,6 +207,21 @@ function setupGraveActions(cemetery: Cemetery, handlers: { onColleagueAdded: () 
         },
       );
     });
+  });
+
+  maintainBtn.addEventListener("click", () => {
+    if (!focusedColleague) return;
+    const colleague = focusedColleague;
+    void (async () => {
+      try {
+        const { maintenance } = await maintainColleague(colleague.id);
+        const updated = { ...colleague, maintenance };
+        focusedColleague = updated;
+        cemetery.updateColleague(updated);
+      } catch (err) {
+        console.error("Erreur entretien:", err);
+      }
+    })();
   });
 
   addGraveBtn.addEventListener("click", () => {

@@ -243,4 +243,32 @@ describe.skipIf(!online)("API métier (avec base de données)", () => {
     });
     expect(res.statusCode).toBe(401);
   });
+
+  it("entretient une tombe et augmente son niveau de soin (issue #14)", async () => {
+    // La maintenance effective décroît depuis la création ; un entretien l'augmente.
+    const before = await app.inject({
+      method: "GET",
+      url: `/api/companies/${companyId}/colleagues`,
+    });
+    const maintenanceBefore = (before.json().colleagues as { id: string; maintenance: number }[])
+      .find((c) => c.id === colleagueId)?.maintenance ?? 0;
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/colleagues/${colleagueId}/maintain`,
+      headers: { cookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const { maintenance: afterMaintenance } = res.json() as { maintenance: number };
+    expect(afterMaintenance).toBeGreaterThan(maintenanceBefore);
+    expect(afterMaintenance).toBeLessThanOrEqual(1);
+  });
+
+  it("refuse l'entretien sans authentification (401, issue #14)", async () => {
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/colleagues/${colleagueId}/maintain`,
+    });
+    expect(res.statusCode).toBe(401);
+  });
 });

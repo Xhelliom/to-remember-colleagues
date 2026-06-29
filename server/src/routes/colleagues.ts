@@ -6,6 +6,7 @@ import { requireUser } from "../session.ts";
 import { newGraveSeed } from "../lib/random.ts";
 import { ID_PARAM_SCHEMA } from "../lib/schemas.ts";
 import { activeOfferingCounts } from "../lib/offerings.ts";
+import { effectiveMaintenance } from "../lib/maintenance.ts";
 
 export async function colleagueRoutes(app: FastifyInstance) {
   // Liste des collègues (tombes) d'un cimetière.
@@ -36,6 +37,7 @@ export async function colleagueRoutes(app: FastifyInstance) {
         graveSeed: colleagues.graveSeed,
         voteScore: colleagues.voteScore,
         maintenance: colleagues.maintenance,
+        maintainedAt: colleagues.maintainedAt,
         createdAt: colleagues.createdAt,
       })
       .from(colleagues)
@@ -45,15 +47,23 @@ export async function colleagueRoutes(app: FastifyInstance) {
     // Karma = somme des voteScores (issue #3) pour l'affichage de la jauge dans le HUD.
     const karma = rows.reduce((sum, c) => sum + c.voteScore, 0);
 
-    // Offrandes actives par tombe (issue #7).
+    // Offrandes actives + entretien effectif (issues #7 et #14).
     const now = new Date();
     const counts = await activeOfferingCounts(rows.map((r) => r.id), now);
-    const withOfferings = rows.map((r) => ({
-      ...r,
+    const enriched = rows.map((r) => ({
+      id: r.id,
+      name: r.name,
+      quote: r.quote,
+      departedOn: r.departedOn,
+      graveSeed: r.graveSeed,
+      voteScore: r.voteScore,
+      // Maintenance effective = base décroissante depuis la dernière action (issue #14).
+      maintenance: effectiveMaintenance(r.maintenance, r.maintainedAt ?? r.createdAt, now),
+      createdAt: r.createdAt,
       offeringCounts: counts.get(r.id) ?? { flower: 0, candle: 0, stone: 0 },
     }));
 
-    return { company, colleagues: withOfferings, karma };
+    return { company, colleagues: enriched, karma };
   });
 
   // Ajout d'un collègue (auth requise).

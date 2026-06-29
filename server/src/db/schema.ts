@@ -32,6 +32,8 @@ export const colleagues = pgTable(
     maintenance: real("maintenance").notNull().default(0.8),
     addedBy: text("added_by").references(() => user.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    // null = jamais entretenu manuellement ; la décroissance part de createdAt (issue #14).
+    maintainedAt: timestamp("maintained_at", { withTimezone: true }),
   },
   (table) => [index("colleagues_company_idx").on(table.companyId)],
 );

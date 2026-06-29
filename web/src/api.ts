@@ -113,6 +113,16 @@ export async function addGraveMessage(colleagueId: string, content: string): Pro
   return json<GraveMessage>(res);
 }
 
+// --- Entretien (axe 3, #14) ---
+
+export async function maintainColleague(colleagueId: string): Promise<{ maintenance: number }> {
+  const res = await fetch(`/api/colleagues/${colleagueId}/maintain`, {
+    method: "POST",
+    credentials: "include",
+  });
+  return json<{ maintenance: number }>(res);
+}
+
 // --- Offrandes éphémères (#7) ---
 
 export async function addOffering(colleagueId: string, type: OfferingType): Promise<OfferingCounts> {
