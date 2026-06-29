@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "node --watch --env-file-if-exists=.env --experimental-strip-types src/index.ts",
+    "dev:host": "pnpm dev",
     "build": "tsc -p tsconfig.build.json",
     "start": "node --env-file-if-exists=.env dist/index.js",
     "typecheck": "tsgo --noEmit || tsc --noEmit",

@@ -98,6 +98,7 @@ versionnées dans `server/drizzle`.
 
 ```bash
 pnpm dev            # API + client en parallèle
+pnpm dev:host       # idem, mais client exposé sur le réseau (test multijoueur multi-appareils)
 pnpm dev:server     # API seule
 pnpm dev:web        # client seul
 pnpm build          # build de production (client + serveur)
