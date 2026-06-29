@@ -318,6 +318,38 @@ textarea {
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
 }
 
+.visitor-count {
+  position: fixed;
+  top: 18px;
+  left: 20px;
+  font-family: system-ui, sans-serif;
+  font-size: 0.9rem;
+  color: rgba(232, 230, 225, 0.85);
+  background: rgba(8, 9, 14, 0.6);
+  padding: 6px 12px;
+  border-radius: 16px;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9);
+  z-index: 12;
+}
+
+.portal-prompt {
+  position: fixed;
+  bottom: 96px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-family: "Cinzel", Georgia, serif;
+  font-size: 1rem;
+  letter-spacing: 0.04em;
+  color: #f2ecd8;
+  background: rgba(8, 9, 14, 0.78);
+  border: 1px solid rgba(210, 200, 170, 0.4);
+  padding: 10px 20px;
+  border-radius: 24px;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.9);
+  pointer-events: none;
+  z-index: 9;
+}
+
 .grave-panel {
   position: fixed;
   bottom: 80px;

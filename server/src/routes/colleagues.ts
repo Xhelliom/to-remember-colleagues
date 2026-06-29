@@ -22,6 +22,8 @@ export async function colleagueRoutes(app: FastifyInstance) {
         quote: colleagues.quote,
         departedOn: colleagues.departedOn,
         graveSeed: colleagues.graveSeed,
+        voteScore: colleagues.voteScore,
+        maintenance: colleagues.maintenance,
         createdAt: colleagues.createdAt,
       })
       .from(colleagues)

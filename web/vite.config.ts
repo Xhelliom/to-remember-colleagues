@@ -6,7 +6,7 @@ export default defineConfig({
     proxy: {
       // Tout /api (auth Better Auth + API métier) est relayé vers le backend Fastify.
       "/api": {
-        target: "http://localhost:3000",
+        target: "http://localhost:3300",
         changeOrigin: true,
       },
     },

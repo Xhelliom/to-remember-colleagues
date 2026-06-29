@@ -2,7 +2,15 @@ import { sql } from "drizzle-orm";
 import { db, pool } from "./db/client.ts";
 import { companies, colleagues } from "./db/schema.ts";
 
-type SeedColleague = { name: string; quote: string; departedOn: string };
+// voteScore (axe 2) et maintenance (axe 3) sont optionnels : valeurs par défaut
+// neutres si absents. departedOn pilote l'axe 1 (vieillissement).
+type SeedColleague = {
+  name: string;
+  quote: string;
+  departedOn: string;
+  voteScore?: number;
+  maintenance?: number;
+};
 type SeedCompany = {
   name: string;
   slug: string;
@@ -16,11 +24,13 @@ const DATA: SeedCompany[] = [
     slug: "pixel-et-cie",
     description: "Studio créatif. Ici reposent les pixels poussés trop loin.",
     colleagues: [
-      { name: "Camille Dubois", quote: "Je serai toujours à un pixel près.", departedOn: "2021-09-15" },
-      { name: "Hugo Mercier", quote: "Parti déployer en prod un vendredi soir.", departedOn: "2022-03-02" },
-      { name: "Léa Fontaine", quote: "Elle a fini par trouver un meilleur café ailleurs.", departedOn: "2023-06-20" },
-      { name: "Sofiane Baki", quote: "Ses commits étaient courts, sa légende est longue.", departedOn: "2020-11-30" },
-      { name: "Marina Lopez", quote: "Elle a quitté l'open space pour les open spaces du large.", departedOn: "2024-01-10" },
+      // Cas combiné #25 : très vieille (axe 1) + paradisiaque (axe 2) + négligée (axe 3).
+      { name: "Camille Dubois", quote: "Je serai toujours à un pixel près.", departedOn: "1985-09-15", voteScore: 32, maintenance: 0.1 },
+      // Récente, hantée (downvotée), mais impeccablement entretenue.
+      { name: "Hugo Mercier", quote: "Parti déployer en prod un vendredi soir.", departedOn: "2024-03-02", voteScore: -28, maintenance: 0.95 },
+      { name: "Léa Fontaine", quote: "Elle a fini par trouver un meilleur café ailleurs.", departedOn: "2023-06-20", voteScore: 12 },
+      { name: "Sofiane Baki", quote: "Ses commits étaient courts, sa légende est longue.", departedOn: "2000-11-30", maintenance: 0.2 },
+      { name: "Marina Lopez", quote: "Elle a quitté l'open space pour les open spaces du large.", departedOn: "2024-01-10", voteScore: -8, maintenance: 0.5 },
     ],
   },
   {
@@ -65,6 +75,8 @@ async function main() {
         quote: c.quote,
         departedOn: c.departedOn,
         graveSeed: seed,
+        voteScore: c.voteScore ?? 0,
+        maintenance: c.maintenance ?? 0.8,
       });
     }
     console.log(`  ✓ ${company.name} (${company.colleagues.length} tombes)`);

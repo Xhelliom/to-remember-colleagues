@@ -1,11 +1,16 @@
 import * as THREE from "three";
-import type { Colleague, CompanyDetail } from "./types.ts";
-import { createGrave, seededRandom } from "./graves.ts";
+import type { Colleague, Company, CompanyDetail } from "./types.ts";
+import { createGrave } from "./graves.ts";
+import { graveAxes } from "./graveAxes.ts";
+import { cemeteryLayout } from "./procedural.ts";
+import { buildHub, type Portal } from "./hub.ts";
+import { Presence, type PeerState } from "./net.ts";
+import { makeAvatar, showEmote, tickEmote, type Avatar } from "./avatars.ts";
 import { getAmbiance, resolveSeasonKey, resolveTimeKey, type Ambiance, type SeasonSetting, type TimeSetting } from "./ambiance.ts";
 import { createSky, type Sky } from "./scene/sky.ts";
 import { Lighting } from "./scene/lighting.ts";
 import { Decor } from "./scene/decor.ts";
-import { FirstPersonControls } from "./scene/controls.ts";
+import { FirstPersonControls, EYE_HEIGHT } from "./scene/controls.ts";
 
 const FOV = 70;
 const NEAR = 0.1;
@@ -13,17 +18,20 @@ const FAR = 400;
 const MAX_PIXEL_RATIO = 2;
 const MAX_DELTA = 0.05;
 const FOCUS_RADIUS = 3.2;
+const PORTAL_RADIUS = 3.8;
 const GROUND_RADIUS = 160;
 const GROUND_SEGMENTS = 64;
-const GRAVE_SPACING_X = 3.2;
-const GRAVE_SPACING_Z = 3.6;
-const MIN_ROW_LENGTH = 4;
 const MIN_PLOT_HALF = 16;
-const PLOT_MARGIN = 5;
 const ENTRANCE_OFFSET = 3;
-const GRAVE_JITTER = 0.4;
+const PEER_SMOOTH_RATE = 10; // lissage exponentiel de l'interpolation des pairs
 
-/** Orchestrateur de la scène 3D : assemble ciel, lumières, décor, contrôles et tombes. */
+type Mode = "cemetery" | "hub";
+
+/** Pair distant : son avatar et la cible vers laquelle on interpole. */
+type Peer = { avatar: Avatar; tx: number; ty: number; tz: number; try_: number };
+
+/** Orchestrateur de la scène 3D : assemble ciel, lumières, décor, contrôles, tombes,
+ *  le hub de cimetières (#5) et la présence des autres visiteurs (#4). */
 export class Cemetery {
   private readonly renderer: THREE.WebGLRenderer;
   private readonly scene = new THREE.Scene();
@@ -36,7 +44,10 @@ export class Cemetery {
   private readonly controls: FirstPersonControls;
   private readonly groundMat = new THREE.MeshStandardMaterial({ roughness: 1 });
   private readonly gravesGroup = new THREE.Group();
+  private readonly hubGroup = new THREE.Group();
+  private readonly peersGroup = new THREE.Group();
 
+  private mode: Mode = "cemetery";
   private detail: CompanyDetail | null = null;
   private ambiance: Ambiance;
   private timeSetting: TimeSetting = "auto";
@@ -46,6 +57,19 @@ export class Cemetery {
 
   private focusCb: (c: Colleague | null) => void = () => {};
   private focused: Colleague | null = null;
+
+  // Hub (#5).
+  private portals: Portal[] = [];
+  private nearPortal: Portal | null = null;
+  private portalCb: (p: Portal | null) => void = () => {};
+  private enterPortalCb: (company: Company) => void = () => {};
+
+  // Présence multijoueur (#4).
+  private readonly presence = new Presence();
+  private readonly peers = new Map<string, Peer>();
+  private visitorName = "Visiteur";
+  private currentRoom: string | null = null;
+  private countCb: (n: number) => void = () => {};
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -60,7 +84,7 @@ export class Cemetery {
     this.scene.add(this.sky.mesh);
     this.scene.fog = new THREE.FogExp2(0xc7d6e6, 0.01);
     this.lighting.addTo(this.scene);
-    this.scene.add(this.gravesGroup, this.decor.group);
+    this.scene.add(this.gravesGroup, this.decor.group, this.hubGroup, this.peersGroup);
     this.buildGround();
 
     this.controls = new FirstPersonControls(this.camera, this.renderer.domElement);
@@ -71,6 +95,7 @@ export class Cemetery {
     this.applyAmbiance(this.ambiance);
 
     window.addEventListener("resize", this.onResize);
+    document.addEventListener("keydown", this.onActionKey);
     this.renderer.setAnimationLoop(this.loop);
   }
 
@@ -80,6 +105,22 @@ export class Cemetery {
 
   onLockChange(cb: (locked: boolean) => void) {
     this.controls.onLockChange(cb);
+  }
+
+  onPortalChange(cb: (p: Portal | null) => void) {
+    this.portalCb = cb;
+  }
+
+  onEnterPortal(cb: (company: Company) => void) {
+    this.enterPortalCb = cb;
+  }
+
+  onVisitorCount(cb: (n: number) => void) {
+    this.countCb = cb;
+  }
+
+  setVisitorName(name: string) {
+    this.visitorName = name;
   }
 
   requestLock() {
@@ -99,9 +140,30 @@ export class Cemetery {
   }
 
   setCemetery(detail: CompanyDetail) {
+    this.mode = "cemetery";
+    this.clearHub();
     this.detail = detail;
     this.layoutGraves();
+    this.controls.setBound(this.plotHalf);
     this.controls.placeAt(0, this.plotHalf - ENTRANCE_OFFSET);
+    this.connectRoom(`cem:${detail.company.id}`);
+  }
+
+  /** Entre dans le hub : route + portails de tous les cimetières (issue #5). */
+  enterHub(companies: Company[]) {
+    this.mode = "hub";
+    this.detail = null;
+    this.gravesGroup.clear();
+    this.clearHub();
+
+    const hub = buildHub(companies);
+    this.portals = hub.portals;
+    this.hubGroup.add(hub.group);
+    this.plotHalf = Math.max(hub.bounds.maxX - hub.bounds.minX, hub.bounds.maxZ - hub.bounds.minZ);
+    this.controls.setBoundsRect(hub.bounds);
+    this.controls.placeAt(hub.start.x, hub.start.z);
+    this.decor.build(this.ambiance, this.plotHalf, { structures: false });
+    this.connectRoom("hub");
   }
 
   addColleague(colleague: Colleague) {
@@ -114,10 +176,25 @@ export class Cemetery {
     this.timeSetting = time;
     this.seasonSetting = season;
     const next = this.resolveAmbiance();
-    const scaryChanged = next.scary !== this.ambiance.scary;
+    // La teinte de base des pierres dépend de la saison → on reconstruit les
+    // tombes quand elle change (les 3 axes #25 sont recalculés au passage).
+    const graveColorChanged = next.graveColor !== this.ambiance.graveColor;
     this.ambiance = next;
     this.applyAmbiance(next);
-    if (scaryChanged) this.layoutGraves();
+    if (graveColorChanged && this.mode === "cemetery") this.layoutGraves();
+  }
+
+  /** Quitte tout salon de présence (retour menu / déconnexion, issue #4). */
+  leavePresence() {
+    this.presence.disconnect();
+    this.currentRoom = null;
+    this.clearPeers();
+    this.countCb(0);
+  }
+
+  /** Joue une emote, relayée aux autres visiteurs (issue #4). */
+  emote(name: string) {
+    this.presence.emote(name);
   }
 
   private buildGround() {
@@ -141,39 +218,91 @@ export class Cemetery {
     fog.density = a.fogDensity;
     this.lighting.apply(a);
     this.groundMat.color.setHex(a.groundColor);
-    this.decor.build(a, this.plotHalf);
+    // Enceinte/arbres seulement en cimetière ; le hub ne garde que les particules.
+    this.decor.build(a, this.plotHalf, { structures: this.mode === "cemetery" });
   }
 
   private layoutGraves() {
     this.gravesGroup.clear();
     if (!this.detail) return;
     const list = this.detail.colleagues;
-    const perRow = Math.max(MIN_ROW_LENGTH, Math.ceil(Math.sqrt(list.length)));
-    const rows = Math.ceil(list.length / perRow);
 
-    this.plotHalf = Math.max(
-      MIN_PLOT_HALF,
-      (Math.max(perRow, rows) * Math.max(GRAVE_SPACING_X, GRAVE_SPACING_Z)) / 2 + PLOT_MARGIN,
-    );
+    // Plan procédural déterministe, seedé sur l'id de l'organisation (issue #5).
+    const layout = cemeteryLayout(this.detail.company.id, list.length);
+    this.plotHalf = layout.plotHalf;
     this.controls.setBound(this.plotHalf);
+    const now = Date.now();
 
-    const startX = -((perRow - 1) * GRAVE_SPACING_X) / 2;
-    const startZ = -((rows - 1) * GRAVE_SPACING_Z) / 2 - 2;
     list.forEach((colleague, i) => {
-      const jitter = seededRandom(colleague.graveSeed + 7);
-      const grave = createGrave(colleague, this.ambiance.graveColor, this.ambiance.scary);
-      grave.position.set(
-        startX + (i % perRow) * GRAVE_SPACING_X + (jitter() - 0.5) * GRAVE_JITTER,
-        0,
-        startZ + Math.floor(i / perRow) * GRAVE_SPACING_Z + (jitter() - 0.5) * GRAVE_JITTER,
-      );
+      const place = layout.placements[i];
+      // Combine les 3 axes visuels indépendants de la tombe (issue #25).
+      const grave = createGrave(colleague, this.ambiance.graveColor, graveAxes(colleague, now));
+      grave.position.set(place.x, 0, place.z);
+      grave.rotation.y += place.rotY;
       this.gravesGroup.add(grave);
     });
 
     this.decor.build(this.ambiance, this.plotHalf);
   }
 
+  // ---- Présence multijoueur (#4) ----
+
+  private connectRoom(room: string) {
+    if (room === this.currentRoom) return;
+    this.currentRoom = room;
+    this.clearPeers();
+    this.presence.connect(room, this.visitorName, {
+      onPeerState: (p) => this.upsertPeer(p),
+      onPeerLeave: (id) => this.removePeer(id),
+      onEmote: (id, emote) => {
+        const peer = this.peers.get(id);
+        if (peer) showEmote(peer.avatar, emote, performance.now());
+      },
+      onCount: (n) => this.countCb(n),
+    });
+  }
+
+  private upsertPeer(p: PeerState) {
+    let peer = this.peers.get(p.id);
+    if (!peer) {
+      const avatar = makeAvatar(p.name);
+      avatar.group.position.set(p.x, p.y, p.z);
+      avatar.group.rotation.y = p.ry;
+      this.peersGroup.add(avatar.group);
+      peer = { avatar, tx: p.x, ty: p.y, tz: p.z, try_: p.ry };
+      this.peers.set(p.id, peer);
+    }
+    peer.tx = p.x;
+    peer.ty = p.y;
+    peer.tz = p.z;
+    peer.try_ = p.ry;
+  }
+
+  private removePeer(id: string) {
+    const peer = this.peers.get(id);
+    if (!peer) return;
+    this.peersGroup.remove(peer.avatar.group);
+    disposeGroup(peer.avatar.group);
+    this.peers.delete(id);
+  }
+
+  private clearPeers() {
+    for (const id of [...this.peers.keys()]) this.removePeer(id);
+  }
+
+  private clearHub() {
+    disposeGroup(this.hubGroup);
+    this.portals = [];
+    this.setPortal(null);
+  }
+
+  // ---- Boucle ----
+
   private updateFocus() {
+    if (this.mode === "hub") {
+      this.updatePortalFocus();
+      return;
+    }
     const cam = this.camera.position;
     let nearest: Colleague | null = null;
     let best = FOCUS_RADIUS;
@@ -190,12 +319,60 @@ export class Cemetery {
     }
   }
 
+  private updatePortalFocus() {
+    const cam = this.camera.position;
+    let nearest: Portal | null = null;
+    let best = PORTAL_RADIUS;
+    for (const portal of this.portals) {
+      const d = Math.hypot(portal.x - cam.x, portal.z - cam.z);
+      if (d < best) {
+        best = d;
+        nearest = portal;
+      }
+    }
+    this.setPortal(nearest);
+  }
+
+  private setPortal(p: Portal | null) {
+    if (p !== this.nearPortal) {
+      this.nearPortal = p;
+      this.portalCb(p);
+    }
+  }
+
+  /** Publie notre position aux pairs (cadence limitée côté Presence). */
+  private publishPresence() {
+    if (!this.currentRoom) return;
+    const p = this.controls.object.position;
+    const dir = new THREE.Vector3();
+    this.camera.getWorldDirection(dir);
+    this.presence.setState(p.x, p.y, p.z, Math.atan2(dir.x, dir.z));
+  }
+
+  /** Interpole les avatars distants vers leur dernière position connue (issue #4). */
+  private updatePeers(dt: number) {
+    const now = performance.now();
+    const k = 1 - Math.exp(-PEER_SMOOTH_RATE * dt);
+    for (const peer of this.peers.values()) {
+      const g = peer.avatar.group;
+      g.position.x += (peer.tx - g.position.x) * k;
+      g.position.y += (peer.ty - g.position.y) * k;
+      g.position.z += (peer.tz - g.position.z) * k;
+      let d = peer.try_ - g.rotation.y;
+      d = Math.atan2(Math.sin(d), Math.cos(d)); // plus court chemin angulaire
+      g.rotation.y += d * k;
+      tickEmote(peer.avatar, now);
+    }
+  }
+
   private loop = () => {
     const dt = Math.min(this.clock.getDelta(), MAX_DELTA);
     if (this.running) {
       this.controls.update(dt);
       this.updateFocus();
+      this.publishPresence();
     }
+    this.updatePeers(dt);
     this.decor.update(dt, this.clock.elapsedTime);
     this.renderer.render(this.scene, this.camera);
   };
@@ -205,4 +382,28 @@ export class Cemetery {
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
   };
+
+  private onActionKey = (e: KeyboardEvent) => {
+    if (e.type !== "keydown" || !this.controls.isLocked) return;
+    if (e.code === "KeyE" && this.mode === "hub" && this.nearPortal) {
+      this.enterPortalCb(this.nearPortal.company); // entrer dans un cimetière (#5)
+    } else if (e.code === "KeyF") {
+      this.emote("wave"); // emote « saluer » synchronisée (#4)
+    }
+  };
+}
+
+/** Libère géométries ET matériaux/textures d'un groupe avant de le vider. */
+function disposeGroup(group: THREE.Group) {
+  group.traverse((obj) => {
+    const mesh = obj as THREE.Mesh;
+    if (mesh.geometry) mesh.geometry.dispose();
+    const mat = mesh.material;
+    for (const m of Array.isArray(mat) ? mat : mat ? [mat] : []) {
+      const map = (m as THREE.MeshStandardMaterial).map;
+      if (map) map.dispose();
+      m.dispose();
+    }
+  });
+  group.clear();
 }

@@ -55,7 +55,10 @@ pnpm dev
 ## Utilisation
 
 1. **Inscrivez-vous / connectez-vous** (comptes gérés par Better Auth).
-2. **Choisissez un cimetière** (une entreprise) dans le menu, ou créez-en un.
+2. **Choisissez un cimetière** dans le menu pour un *voyage rapide*, **ou** cliquez
+   sur *🚶 Explorer la route des cimetières* pour vous promener sur la **route
+   commune** : marchez jusqu'à un portail (enseigne nom / karma / statut) et
+   appuyez sur **E** pour entrer. **F** pour saluer les autres visiteurs.
 3. **Baladez-vous** :
    - `ZQSD` / `WASD` ou flèches pour marcher
    - **Souris** pour regarder (cliquez pour capturer le curseur)
@@ -71,7 +74,8 @@ pnpm dev
 - `user` / `session` / `account` / `verification` — tables gérées par Better Auth.
 - `companies` — un cimetière par entreprise (`name`, `slug`, `description`).
 - `colleagues` — une tombe par collègue (`name`, `quote`, `departedOn`,
-  `graveSeed` pour une forme/position déterministe).
+  `graveSeed` pour une forme/position déterministe, `vote_score` et `maintenance`
+  pour les axes visuels ci-dessous).
 
 Schéma défini avec Drizzle dans [`server/src/db`](server/src/db) ; migrations
 versionnées dans `server/drizzle`.
@@ -81,10 +85,14 @@ versionnées dans `server/drizzle`.
 | Méthode | Route | Auth | Description |
 | --- | --- | --- | --- |
 | `*` | `/api/auth/*` | — | Better Auth (inscription, connexion, session) |
-| `GET` | `/api/companies` | non | Liste des cimetières + nombre de tombes |
+| `GET` | `/api/companies` | non | Liste des cimetières + nombre de tombes, karma et statut |
 | `POST` | `/api/companies` | oui | Crée un cimetière |
 | `GET` | `/api/companies/:id/colleagues` | non | Détail d'un cimetière + tombes |
 | `POST` | `/api/companies/:id/colleagues` | oui | Ajoute une tombe |
+| `GET` | `/api/rooms/:room/stream` | non | Flux SSE de présence d'un salon (#4) |
+| `POST` | `/api/rooms/:room/state` | non | Publie sa position (relayée aux pairs) |
+| `POST` | `/api/rooms/:room/emote` | non | Joue une emote (relayée aux pairs) |
+| `POST` | `/api/rooms/:room/leave` | non | Quitte le salon (balise de fermeture) |
 
 ## Scripts utiles
 
@@ -120,6 +128,46 @@ Les conventions et objectifs mesurables sont décrits dans [`CLAUDE.md`](CLAUDE.
 # Tout valider (definition of done)
 pnpm typecheck && pnpm test && pnpm build && pnpm e2e
 ```
+
+## Aspect d'une tombe : 3 axes indépendants (#25)
+
+L'apparence d'une tombe résulte de **trois axes qui se combinent sans se
+confondre** ([`web/src/graveAxes.ts`](web/src/graveAxes.ts) = modèle,
+[`web/src/graves.ts`](web/src/graves.ts) = pipeline de rendu) :
+
+| Axe | Donnée source | Effet visuel |
+| --- | --- | --- |
+| **1 — Vieillissement** | `departedOn` (dérivé, irréversible) | Patine : pierre désaturée/assombrie, gravure usée, affaissement |
+| **2 — Votes** | `vote_score` (hanté ↔ paradisiaque) | Teinte chaude/dorée + halo (paradis) ou froide/violacée + émissif spectral (hanté) |
+| **3 — Entretien** | `maintenance` 0..1 | Bouquet fleuri (soigné) ou herbes folles + mousse (négligé) |
+
+Les trois sont **strictement indépendants** : une tombe peut être vieille,
+upvotée **et** mal entretenue à la fois. Logique pure couverte par
+`web/src/graveAxes.test.ts`.
+
+## Hub & cimetières procéduraux (#5)
+
+Une **route commune** ([`web/src/hub.ts`](web/src/hub.ts)) borde les **entrées**
+de tous les cimetières (un portail par organisation, alternés), chacune avec une
+**enseigne** nom / jauge de karma / statut. On entre en s'approchant du portail
+(touche **E**) : les tombes sont alors **chargées à la demande**. Le plan de
+chaque cimetière est **généré procéduralement et de façon déterministe**
+([`web/src/procedural.ts`](web/src/procedural.ts)) depuis l'id de l'organisation
+(motif grille / rangées / anneaux, taille ∝ tombes). Couvert par
+`web/src/procedural.test.ts`.
+
+## Multijoueur de base : présence temps réel (#4)
+
+On voit les **autres visiteurs** présents dans le même lieu (avatars fantômes qui
+se déplacent en temps réel, emote *saluer* via **F**, compteur de visiteurs).
+
+**Architecture : serveur autoritatif-relais (pas de P2P).** Le serveur
+([`server/src/realtime.ts`](server/src/realtime.ts)) attribue les identifiants,
+possède les **salons** (un par cimetière, plus le hub) et relaie l'état ; il ne
+simule pas la physique. **Transport natif** plutôt qu'une dépendance WebSocket :
+**SSE** serveur→client + `fetch` POST client→serveur
+([`web/src/net.ts`](web/src/net.ts)). Positions publiées à ~10 Hz et
+**interpolées** côté client ([`web/src/avatars.ts`](web/src/avatars.ts)).
 
 ## Ambiance dynamique
 

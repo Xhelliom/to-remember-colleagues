@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import { auth } from "./auth.ts";
 import { companyRoutes } from "./routes/companies.ts";
 import { colleagueRoutes } from "./routes/colleagues.ts";
+import { realtimeRoutes } from "./realtime.ts";
 
 const DEFAULT_CORS_ORIGIN = "http://localhost:5173";
 const AUTH_HANDLER_ERROR = 500;
@@ -54,6 +55,7 @@ export async function buildApp(options: { logger?: boolean } = {}): Promise<Fast
 
   await app.register(companyRoutes);
   await app.register(colleagueRoutes);
+  await app.register(realtimeRoutes);
 
   app.get("/api/health", async () => ({ status: "ok" }));
 

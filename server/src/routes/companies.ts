@@ -4,6 +4,7 @@ import { db } from "../db/client.ts";
 import { companies, colleagues } from "../db/schema.ts";
 import { requireUser } from "../session.ts";
 import { slugify, uniqueSlug } from "../lib/slug.ts";
+import { companyStatus } from "../lib/company-status.ts";
 
 const createCompanySchema = {
   body: {
@@ -17,9 +18,9 @@ const createCompanySchema = {
 } as const;
 
 export async function companyRoutes(app: FastifyInstance) {
-  // Liste des cimetières (entreprises) avec le nombre de tombes.
+  // Liste des cimetières (entreprises) avec nombre de tombes, karma et statut.
   app.get("/api/companies", async () => {
-    return db
+    const rows = await db
       .select({
         id: companies.id,
         name: companies.name,
@@ -27,11 +28,21 @@ export async function companyRoutes(app: FastifyInstance) {
         description: companies.description,
         createdAt: companies.createdAt,
         graveCount: sql<number>`count(${colleagues.id})::int`,
+        // Karma = somme des votes des tombes (axe 2, issue #25).
+        karma: sql<number>`coalesce(sum(${colleagues.voteScore}), 0)::int`,
+        // Dernière inhumation, pour dériver le statut d'activité (issue #5).
+        lastBurial: sql<string | null>`max(${colleagues.createdAt})`,
       })
       .from(companies)
       .leftJoin(colleagues, eq(colleagues.companyId, companies.id))
       .groupBy(companies.id)
       .orderBy(asc(companies.name));
+
+    const now = Date.now();
+    return rows.map(({ lastBurial, ...row }) => ({
+      ...row,
+      status: companyStatus(row.graveCount, lastBurial, now),
+    }));
   });
 
   // Création d'un cimetière (auth requise).

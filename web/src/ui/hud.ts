@@ -11,12 +11,16 @@ const graveName = gravePanel.querySelector(".grave-panel-name") as HTMLDivElemen
 const graveDates = gravePanel.querySelector(".grave-panel-dates") as HTMLDivElement;
 const graveQuote = gravePanel.querySelector(".grave-panel-quote") as HTMLQuoteElement;
 const lockPrompt = document.getElementById("lock-prompt") as HTMLDivElement;
+const lockPromptText = lockPrompt.querySelector("p") as HTMLParagraphElement;
 const ambianceBtn = document.getElementById("ambiance-btn") as HTMLButtonElement;
 const ambiancePanel = document.getElementById("ambiance-panel") as HTMLDivElement;
 const timeSelect = document.getElementById("ambiance-time") as HTMLSelectElement;
 const seasonSelect = document.getElementById("ambiance-season") as HTMLSelectElement;
 const addGraveBtn = document.getElementById("add-grave-btn") as HTMLButtonElement;
+const backRoadBtn = document.getElementById("back-road-btn") as HTMLButtonElement;
 const backMenuBtn = document.getElementById("back-menu-btn") as HTMLButtonElement;
+const portalPrompt = document.getElementById("portal-prompt") as HTMLDivElement;
+const visitorCount = document.getElementById("visitor-count") as HTMLDivElement;
 
 let currentCompanyId: string | null = null;
 
@@ -29,13 +33,31 @@ function formatDate(iso: string | null): string {
 
 export function setupHud(
   cemetery: Cemetery,
-  handlers: { onBack: () => void; onColleagueAdded: () => void },
+  handlers: { onBack: () => void; onBackToRoad: () => void; onColleagueAdded: () => void },
 ) {
   cemetery.onFocusChange((colleague) => showGrave(colleague));
 
+  // Invite « Appuyez sur E pour entrer » à l'approche d'un portail (hub, issue #5).
+  cemetery.onPortalChange((portal) => {
+    if (!portal) {
+      portalPrompt.classList.add("hidden");
+      return;
+    }
+    portalPrompt.textContent = `Appuyez sur E pour entrer · ${portal.company.name}`;
+    portalPrompt.classList.remove("hidden");
+  });
+
+  // Compteur de visiteurs présents dans le salon, soi inclus (issue #4).
+  cemetery.onVisitorCount((n) => {
+    visitorCount.textContent = n > 0 ? `👥 ${n} visiteur${n > 1 ? "s" : ""}` : "";
+  });
+
   cemetery.onLockChange((locked) => {
     lockPrompt.classList.toggle("hidden", locked);
-    if (!locked) gravePanel.classList.add("hidden");
+    if (!locked) {
+      gravePanel.classList.add("hidden");
+      portalPrompt.classList.add("hidden");
+    }
   });
 
   lockPrompt.addEventListener("click", () => cemetery.requestLock());
@@ -76,6 +98,11 @@ export function setupHud(
     );
   });
 
+  backRoadBtn.addEventListener("click", () => {
+    cemetery.unlock();
+    handlers.onBackToRoad();
+  });
+
   backMenuBtn.addEventListener("click", () => {
     cemetery.unlock();
     handlers.onBack();
@@ -93,9 +120,27 @@ function showGrave(colleague: Colleague | null) {
   gravePanel.classList.remove("hidden");
 }
 
+/** Boutons réservés au cimetière (sans objet dans le hub). */
+function setCemeteryButtons(visible: boolean) {
+  addGraveBtn.classList.toggle("hidden", !visible);
+  backRoadBtn.classList.toggle("hidden", !visible);
+}
+
 export function showHud(companyName: string, companyId: string) {
   currentCompanyId = companyId;
   nameEl.textContent = companyName;
+  lockPromptText.textContent = "Cliquez pour entrer dans le cimetière";
+  setCemeteryButtons(true);
+  portalPrompt.classList.add("hidden");
+  hudEl.classList.remove("hidden");
+}
+
+/** HUD du hub : pas de tombe à gérer, on parcourt la route (issue #5). */
+export function showHubHud(cemeteryCount: number) {
+  currentCompanyId = null;
+  nameEl.textContent = `La route des cimetières · ${cemeteryCount} entrée${cemeteryCount > 1 ? "s" : ""}`;
+  lockPromptText.textContent = "Cliquez pour parcourir la route";
+  setCemeteryButtons(false);
   hudEl.classList.remove("hidden");
 }
 
@@ -103,4 +148,6 @@ export function hideHud() {
   hudEl.classList.add("hidden");
   ambiancePanel.classList.add("hidden");
   gravePanel.classList.add("hidden");
+  portalPrompt.classList.add("hidden");
+  visitorCount.textContent = "";
 }

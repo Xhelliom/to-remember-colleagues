@@ -42,6 +42,8 @@ export class FirstPersonControls {
   private readonly velocity = new THREE.Vector3();
   private readonly direction = new THREE.Vector3();
   private bound = 20;
+  // Bornes rectangulaires (route du hub) ; null → bornes carrées ±bound (parcelle).
+  private boundsRect: { minX: number; maxX: number; minZ: number; maxZ: number } | null = null;
 
   constructor(camera: THREE.Camera, dom: HTMLElement) {
     this.pointer = new PointerLockControls(camera, dom);
@@ -72,6 +74,12 @@ export class FirstPersonControls {
 
   setBound(plotHalf: number) {
     this.bound = plotHalf - BOUND_MARGIN;
+    this.boundsRect = null;
+  }
+
+  /** Confine le déplacement à un rectangle (route du hub, issue #5). */
+  setBoundsRect(rect: { minX: number; maxX: number; minZ: number; maxZ: number }) {
+    this.boundsRect = rect;
   }
 
   placeAt(x: number, z: number) {
@@ -100,8 +108,14 @@ export class FirstPersonControls {
     this.pointer.moveForward(-this.velocity.z * dt);
 
     const p = this.object.position;
-    p.x = THREE.MathUtils.clamp(p.x, -this.bound, this.bound);
-    p.z = THREE.MathUtils.clamp(p.z, -this.bound, this.bound);
+    const r = this.boundsRect;
+    if (r) {
+      p.x = THREE.MathUtils.clamp(p.x, r.minX, r.maxX);
+      p.z = THREE.MathUtils.clamp(p.z, r.minZ, r.maxZ);
+    } else {
+      p.x = THREE.MathUtils.clamp(p.x, -this.bound, this.bound);
+      p.z = THREE.MathUtils.clamp(p.z, -this.bound, this.bound);
+    }
     p.y = EYE_HEIGHT;
   }
 

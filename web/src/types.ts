@@ -4,6 +4,8 @@ export type User = {
   name: string;
 };
 
+export type CompanyStatus = "Naissant" | "Ouvert" | "En sommeil";
+
 export type Company = {
   id: string;
   name: string;
@@ -11,6 +13,10 @@ export type Company = {
   description: string | null;
   createdAt: string;
   graveCount: number;
+  /** Karma = somme des votes des tombes (axe 2). Affiché sur l'enseigne d'entrée. */
+  karma: number;
+  /** Statut d'activité affiché à l'entrée (issue #5). */
+  status: CompanyStatus;
 };
 
 export type Colleague = {
@@ -19,10 +25,15 @@ export type Colleague = {
   quote: string;
   departedOn: string | null;
   graveSeed: number;
+  /** Axe 2 (issue #25) : solde des votes, hanté (négatif) ↔ paradisiaque (positif). */
+  voteScore: number;
+  /** Axe 3 (issue #25) : entretien, 0 = négligé, 1 = impeccablement fleuri. */
+  maintenance: number;
   createdAt: string;
 };
 
 export type CompanyDetail = {
-  company: Omit<Company, "graveCount">;
+  // La route détail renvoie la ligne brute du cimetière (sans karma/statut agrégés).
+  company: { id: string; name: string; slug: string; description: string | null; createdAt: string };
   colleagues: Colleague[];
 };

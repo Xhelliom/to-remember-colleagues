@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { Colleague } from "./types.ts";
+import type { GraveAxes } from "./graveAxes.ts";
 
 /** Générateur pseudo-aléatoire déterministe (mulberry32) à partir d'une graine. */
 export function seededRandom(seed: number): () => number {
@@ -13,8 +14,14 @@ export function seededRandom(seed: number): () => number {
   };
 }
 
-/** Texture gravée (nom du collègue) appliquée sur l'avant de la pierre. */
-function makeNameTexture(name: string, stoneHex: number, scary: boolean): THREE.CanvasTexture {
+/**
+ * Texture gravée (nom du collègue) appliquée sur l'avant de la pierre.
+ * `wear` (axe 1, vieillissement) estompe la gravure ; `haunt` (axe 2, votes
+ * négatifs) assombrit l'encre vers un ton sépulcral.
+ */
+function makeNameTexture(name: string, stoneHex: number, wear: number, haunt: number): THREE.CanvasTexture {
+  // Plus la tombe est vieille, plus la gravure est usée (moins contrastée).
+  const ink = (base: number) => Math.max(0.12, base * (1 - 0.7 * wear));
   const w = 256;
   const h = 320;
   const canvas = document.createElement("canvas");
@@ -37,12 +44,12 @@ function makeNameTexture(name: string, stoneHex: number, scary: boolean): THREE.
   }
 
   // Cartouche / liseré.
-  ctx.strokeStyle = "rgba(0,0,0,0.35)";
+  ctx.strokeStyle = `rgba(0,0,0,${ink(0.35)})`;
   ctx.lineWidth = 4;
   ctx.strokeRect(18, 22, w - 36, h - 44);
 
   // Croix gravée discrète en haut.
-  ctx.strokeStyle = "rgba(0,0,0,0.3)";
+  ctx.strokeStyle = `rgba(0,0,0,${ink(0.3)})`;
   ctx.lineWidth = 5;
   ctx.beginPath();
   ctx.moveTo(w / 2, 44);
@@ -51,13 +58,14 @@ function makeNameTexture(name: string, stoneHex: number, scary: boolean): THREE.
   ctx.lineTo(w / 2 + 18, 60);
   ctx.stroke();
 
-  // « Ci-gît » + nom, gravés en creux.
+  // « Ci-gît » + nom, gravés en creux. Encre plus sombre/violacée si hanté.
+  const inkRGB = haunt > 0.3 ? `14,6,18` : `28,25,23`;
   ctx.textAlign = "center";
-  ctx.fillStyle = scary ? "rgba(20,8,24,0.85)" : "rgba(30,28,26,0.8)";
+  ctx.fillStyle = `rgba(${inkRGB},${ink(0.8)})`;
   ctx.font = "italic 22px 'EB Garamond', Georgia, serif";
   ctx.fillText("Ci-gît", w / 2, 132);
 
-  ctx.fillStyle = scary ? "rgba(10,4,14,0.92)" : "rgba(25,22,20,0.92)";
+  ctx.fillStyle = `rgba(${inkRGB},${ink(0.92)})`;
   const words = name.split(" ");
   const lines: string[] = [];
   let line = "";
@@ -88,22 +96,51 @@ const TYPES = ["round", "rect", "cross"] as const;
 
 /**
  * Construit une tombe (socle + pierre gravée) pour un collègue.
- * La forme et les petites variations sont déterministes (graveSeed).
+ *
+ * Trois axes INDÉPENDANTS (issue #25) se combinent sur la même pierre :
+ *   - axe 1 `age`         → patine : pierre désaturée/assombrie, gravure usée,
+ *                            affaissement (érosion). Irréversible.
+ *   - axe 2 `vote`        → glissement chromatique chaud/doré (paradisiaque) ou
+ *                            froid/violacé + émissif spectral (hanté).
+ *   - axe 3 `maintenance` → décor : bouquet fleuri (soigné) ou herbes folles +
+ *                            teinte mousse (négligé).
+ * La forme et les variations restent déterministes (graveSeed).
  */
-export function createGrave(colleague: Colleague, graveHex: number, scary: boolean): THREE.Group {
+export function createGrave(colleague: Colleague, graveHex: number, axes: GraveAxes): THREE.Group {
   const rand = seededRandom(colleague.graveSeed);
   const group = new THREE.Group();
 
+  const { age, vote, maintenance } = axes;
+  const haunt = Math.max(0, -vote); // intensité hantée
+  const bless = Math.max(0, vote); // intensité paradisiaque
+
+  // --- Pipeline couleur : chaque axe applique son propre delta HSL ---
   const stoneColor = new THREE.Color(graveHex).offsetHSL(0, 0, (rand() - 0.5) * 0.08);
+  // Axe 1 — vieillissement : désature et assombrit la pierre.
+  stoneColor.offsetHSL(0, -0.28 * age, -0.16 * age);
+  // Axe 2 — votes : décalage de teinte (chaud doré ↔ froid violacé).
+  stoneColor.offsetHSL(0.09 * bless - 0.16 * haunt, 0.12 * bless, 0.05 * bless - 0.05 * haunt);
+  // Axe 3 — entretien négligé : la pierre verdit légèrement (mousse).
+  if (maintenance < 0.5) stoneColor.offsetHSL(0.18 * (0.5 - maintenance), 0.1 * (0.5 - maintenance), -0.06 * (0.5 - maintenance));
+
+  // Axe 2 — émissif : halo doré (paradis) ou lueur spectrale froide (hanté).
+  const emissive = new THREE.Color(0x000000);
+  if (bless > 0) emissive.lerp(new THREE.Color(0xffcf6a), bless * 0.5);
+  if (haunt > 0) emissive.lerp(new THREE.Color(0x4a2f6b), haunt * 0.45);
+
   const stoneMat = new THREE.MeshStandardMaterial({
     color: stoneColor,
-    roughness: 0.9,
+    roughness: 0.9 + 0.08 * age, // axe 1 : pierre plus mate en vieillissant
     metalness: 0.02,
+    emissive,
+    emissiveIntensity: Math.max(bless * 0.6, haunt * 0.5),
   });
   const frontMat = new THREE.MeshStandardMaterial({
-    map: makeNameTexture(colleague.name, stoneColor.getHex(), scary),
+    map: makeNameTexture(colleague.name, stoneColor.getHex(), age, haunt),
     roughness: 0.92,
     metalness: 0.02,
+    emissive,
+    emissiveIntensity: Math.max(bless * 0.4, haunt * 0.35),
   });
 
   // Socle.
@@ -160,12 +197,64 @@ export function createGrave(colleague: Colleague, graveHex: number, scary: boole
     group.add(face);
   }
 
-  // Légère inclinaison/affaissement — plus marquée en mode effrayant.
-  const tilt = (rand() - 0.5) * (scary ? 0.22 : 0.08);
-  group.rotation.z = tilt;
-  group.rotation.x = (rand() - 0.5) * (scary ? 0.12 : 0.04);
+  // Axe 1 — affaissement/érosion : l'inclinaison croît avec l'âge.
+  const tiltAmp = 0.06 + 0.26 * age;
+  group.rotation.z = (rand() - 0.5) * tiltAmp;
+  group.rotation.x = (rand() - 0.5) * tiltAmp * 0.6;
   group.rotation.y = (rand() - 0.5) * 0.25;
+
+  // Axe 3 — décor d'entretien, indépendant des deux autres axes.
+  decorateMaintenance(group, maintenance, width, depth, rand);
 
   group.userData.colleague = colleague;
   return group;
+}
+
+/**
+ * Décor de l'axe 3 (entretien) déposé au pied de la tombe.
+ * `maintenance` élevé → bouquet fleuri ; bas → herbes folles.
+ */
+function decorateMaintenance(
+  group: THREE.Group,
+  maintenance: number,
+  width: number,
+  depth: number,
+  rand: () => number,
+): void {
+  const z = depth / 2 + 0.18; // devant la pierre
+
+  if (maintenance > 0.6) {
+    // Bouquet : quelques fleurs vives sur tiges vertes.
+    const stemMat = new THREE.MeshStandardMaterial({ color: 0x3f6b32, roughness: 1 });
+    const palette = [0xe8556d, 0xf2c14e, 0xffffff, 0xc77dff, 0xff8fab];
+    const n = 3 + Math.floor((maintenance - 0.6) / 0.1);
+    for (let i = 0; i < n; i++) {
+      const fx = (rand() - 0.5) * width * 0.7;
+      const fh = 0.18 + rand() * 0.16;
+      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, fh, 4), stemMat);
+      stem.position.set(fx, fh / 2, z + (rand() - 0.5) * 0.12);
+      group.add(stem);
+      const petalMat = new THREE.MeshStandardMaterial({
+        color: palette[Math.floor(rand() * palette.length)],
+        roughness: 0.7,
+        emissiveIntensity: 0,
+      });
+      const flower = new THREE.Mesh(new THREE.IcosahedronGeometry(0.05, 0), petalMat);
+      flower.position.set(stem.position.x, fh, stem.position.z);
+      group.add(flower);
+    }
+  } else if (maintenance < 0.4) {
+    // Négligé : touffes d'herbes folles qui poussent autour du socle.
+    const weedMat = new THREE.MeshStandardMaterial({ color: 0x5d6b32, roughness: 1 });
+    const n = 3 + Math.floor((0.4 - maintenance) / 0.1);
+    for (let i = 0; i < n; i++) {
+      const wh = 0.22 + rand() * 0.3;
+      const weed = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.03, wh, 4), weedMat);
+      const angle = rand() * Math.PI * 2;
+      const dist = width * 0.4 + rand() * 0.25;
+      weed.position.set(Math.cos(angle) * dist, wh / 2, Math.sin(angle) * dist);
+      weed.rotation.z = (rand() - 0.5) * 0.5;
+      group.add(weed);
+    }
+  }
 }

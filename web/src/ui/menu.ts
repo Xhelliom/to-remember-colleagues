@@ -5,13 +5,17 @@ import { openDialog } from "./dialog.ts";
 const menuEl = document.getElementById("menu") as HTMLDivElement;
 const listEl = document.getElementById("company-list") as HTMLDivElement;
 const addBtn = document.getElementById("add-company-btn") as HTMLButtonElement;
+const exploreBtn = document.getElementById("explore-btn") as HTMLButtonElement;
 const userNameEl = document.getElementById("menu-user-name") as HTMLSpanElement;
 const signoutBtn = document.getElementById("signout-btn") as HTMLButtonElement;
 
 export function setupMenu(handlers: {
   onEnter: (company: Company) => void;
+  onExplore: () => void;
   onSignOut: () => void;
 }) {
+  exploreBtn.addEventListener("click", () => handlers.onExplore());
+
   addBtn.addEventListener("click", () => {
     openDialog(
       "Nouvelle entreprise",

@@ -30,13 +30,19 @@ export class Decor {
   private flickerLights: THREE.PointLight[] = [];
   private bats: THREE.Mesh[] = [];
 
-  /** Reconstruit tout le décor pour une ambiance et une taille de parcelle données. */
-  build(a: Ambiance, plotHalf: number) {
+  /**
+   * Reconstruit le décor pour une ambiance et une taille de parcelle données.
+   * `structures: false` ne pose que les particules (utilisé par le hub, qui n'a
+   * ni enceinte ni allée de cimetière).
+   */
+  build(a: Ambiance, plotHalf: number, { structures = true }: { structures?: boolean } = {}) {
     this.clear();
-    this.buildFence(a, plotHalf);
-    this.buildTrees(a, plotHalf);
-    this.buildPath(plotHalf);
-    if (a.scary) this.buildHalloweenProps(plotHalf);
+    if (structures) {
+      this.buildFence(a, plotHalf);
+      this.buildTrees(a, plotHalf);
+      this.buildPath(plotHalf);
+      if (a.scary) this.buildHalloweenProps(plotHalf);
+    }
     this.buildParticles(a, plotHalf);
   }
 
