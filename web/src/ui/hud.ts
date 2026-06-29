@@ -1,6 +1,6 @@
 import "./social.css";
 import type { Cemetery } from "../cemetery.ts";
-import { addOffering, createColleague, getMyVote, maintainColleague, voteColleague } from "../api.ts";
+import { addOffering, closeCompany, createColleague, getMyVote, maintainColleague, voteColleague } from "../api.ts";
 import type { Colleague, OfferingCounts } from "../types.ts";
 import type { SeasonSetting, TimeSetting } from "../ambiance.ts";
 import { openDialog } from "./dialog.ts";
@@ -19,6 +19,7 @@ const ambiancePanel = document.getElementById("ambiance-panel") as HTMLDivElemen
 const timeSelect = document.getElementById("ambiance-time") as HTMLSelectElement;
 const seasonSelect = document.getElementById("ambiance-season") as HTMLSelectElement;
 const addGraveBtn = document.getElementById("add-grave-btn") as HTMLButtonElement;
+const closeCompanyBtn = document.getElementById("close-company-btn") as HTMLButtonElement;
 const backRoadBtn = document.getElementById("back-road-btn") as HTMLButtonElement;
 const backMenuBtn = document.getElementById("back-menu-btn") as HTMLButtonElement;
 const portalPrompt = document.getElementById("portal-prompt") as HTMLDivElement;
@@ -289,6 +290,28 @@ function setupNavigationButtons(cemetery: Cemetery, handlers: { onBack: () => vo
     cemetery.unlock();
     handlers.onBack();
   });
+
+  // Fermeture irréversible d'un cimetière (issue #6) : réservée au créateur.
+  closeCompanyBtn.addEventListener("click", () => {
+    if (!currentCompanyId) return;
+    const wasLocked = cemetery.isLocked;
+    if (wasLocked) cemetery.unlock();
+    if (!confirm("Fermer définitivement ce cimetière ? Aucune nouvelle tombe ne pourra y être ajoutée.")) {
+      if (wasLocked) cemetery.requestLock();
+      return;
+    }
+    void (async () => {
+      try {
+        await closeCompany(currentCompanyId!);
+        closeCompanyBtn.classList.add("hidden");
+        addGraveBtn.classList.add("hidden");
+      } catch (err) {
+        alert(err instanceof Error ? err.message : "Fermeture impossible.");
+      } finally {
+        if (wasLocked) cemetery.requestLock();
+      }
+    })();
+  });
 }
 
 export function setupHud(
@@ -320,6 +343,7 @@ function showGrave(colleague: Colleague | null) {
 /** Boutons réservés au cimetière (sans objet dans le hub). */
 function setCemeteryButtons(visible: boolean, closed = false) {
   addGraveBtn.classList.toggle("hidden", !visible || closed);
+  closeCompanyBtn.classList.toggle("hidden", !visible || closed);
   backRoadBtn.classList.toggle("hidden", !visible);
 }
 
