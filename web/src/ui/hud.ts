@@ -29,6 +29,7 @@ const voteScoreEl = document.getElementById("vote-score") as HTMLSpanElement;
 const guestbookBtn = document.getElementById("guestbook-btn") as HTMLButtonElement;
 const offeringBtn = document.getElementById("offering-btn") as HTMLButtonElement;
 const maintainBtn = document.getElementById("maintain-btn") as HTMLButtonElement;
+const shareBtn = document.getElementById("share-btn") as HTMLButtonElement;
 const offeringCountsEl = document.getElementById("offering-counts") as HTMLDivElement;
 const karmaGauge = document.getElementById("karma-gauge") as HTMLDivElement;
 const karmaLabel = document.getElementById("karma-label") as HTMLSpanElement;
@@ -223,6 +224,17 @@ function setupGraveActions(cemetery: Cemetery, handlers: { onColleagueAdded: () 
         console.error("Erreur entretien:", err);
       }
     })();
+  });
+
+  shareBtn.addEventListener("click", () => {
+    if (!focusedColleague) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set("grave", focusedColleague.id);
+    void navigator.clipboard.writeText(url.toString()).then(() => {
+      const orig = shareBtn.textContent;
+      shareBtn.textContent = "✓ Copié !";
+      setTimeout(() => { shareBtn.textContent = orig; }, 2000);
+    });
   });
 
   addGraveBtn.addEventListener("click", () => {

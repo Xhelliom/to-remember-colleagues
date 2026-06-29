@@ -97,6 +97,21 @@ describe.skipIf(!online)("API métier (avec base de données)", () => {
     expect(body.anonymized).toBe(false);
   });
 
+  it("expose le détail d'une tombe par id avec son cimetière (issue #18)", async () => {
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/colleagues/${colleagueId}`,
+      headers: { cookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.id).toBe(colleagueId);
+    expect(body.name).toBe("Jean Test");
+    expect(body.company.id).toBe(companyId);
+    expect(typeof body.karma).toBe("number");
+    expect(body.anonymized).toBe(false);
+  });
+
   it("anonymise les noms pour les non-membres (issue #22)", async () => {
     const list = await app.inject({ method: "GET", url: `/api/companies/${companyId}/colleagues` });
     expect(list.statusCode).toBe(200);

@@ -188,6 +188,17 @@ export class Cemetery {
     this.layoutGraves();
   }
 
+  /** Place la caméra à proximité d'une tombe donnée (issue #18 : lien de partage). */
+  highlightGrave(id: string) {
+    if (!this.detail) return;
+    const idx = this.detail.colleagues.findIndex((c) => c.id === id);
+    if (idx < 0) return;
+    const layout = cemeteryLayout(this.detail.company.id, this.detail.colleagues.length);
+    const place = layout.placements[idx];
+    if (!place) return;
+    this.controls.placeAt(place.x, place.z + 2);
+  }
+
   setAmbianceSettings(time: TimeSetting, season: SeasonSetting) {
     this.timeSetting = time;
     this.seasonSetting = season;

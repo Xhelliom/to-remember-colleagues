@@ -1,4 +1,4 @@
-import { getColleagues, getCompanies, getCurrentUser } from "./api.ts";
+import { getColleagues, getCompanies, getCurrentUser, getColleagueById } from "./api.ts";
 import { Cemetery } from "./cemetery.ts";
 import type { Company } from "./types.ts";
 import { hideAuth, setupAuth, showAuth } from "./ui/auth.ts";
@@ -41,6 +41,22 @@ async function enterCemetery(company: Company) {
   // L'utilisateur clique sur l'invite pour capturer la souris et commencer à marcher.
 }
 
+/** Navigation directe vers une tombe via lien de partage (issue #18). */
+async function enterCemeteryByGrave(graveId: string) {
+  hideMenu();
+  try {
+    const { company, karma } = await getColleagueById(graveId);
+    const detail = await getColleagues(company.id);
+    cemetery.setCemetery(detail);
+    showHud(company.name, company.id, karma, company.closed, detail.anonymized);
+    cemetery.setActive(true);
+    cemetery.highlightGrave(graveId);
+    history.replaceState(null, "", window.location.pathname);
+  } catch {
+    await goToMenu();
+  }
+}
+
 // Hub : la route commune d'où l'on rejoint les entrées des cimetières (issue #5).
 async function goToHub() {
   hideMenu();
@@ -57,7 +73,12 @@ setupAuth(async () => {
     setMenuUser(user);
     cemetery.setVisitorName(user.name);
   }
-  await goToMenu();
+  const graveId = new URLSearchParams(window.location.search).get("grave");
+  if (graveId) {
+    await enterCemeteryByGrave(graveId);
+  } else {
+    await goToMenu();
+  }
 });
 
 setupMenu({
@@ -91,10 +112,15 @@ setupHud(cemetery, {
 (async () => {
   try {
     const user = await getCurrentUser();
+    const graveId = new URLSearchParams(window.location.search).get("grave");
     if (user) {
       setMenuUser(user);
       cemetery.setVisitorName(user.name);
-      await goToMenu();
+      if (graveId) {
+        await enterCemeteryByGrave(graveId);
+      } else {
+        await goToMenu();
+      }
     } else {
       goToAuth();
     }

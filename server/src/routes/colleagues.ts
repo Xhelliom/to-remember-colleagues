@@ -1,5 +1,5 @@
-import type { FastifyInstance } from "fastify";
-import { and, asc, eq } from "drizzle-orm";
+import type { FastifyInstance, FastifyRequest } from "fastify";
+import { and, asc, eq, sql } from "drizzle-orm";
 import { db } from "../db/client.ts";
 import { colleagues, companies, companyMembers } from "../db/schema.ts";
 import { getSessionUser, requireUser } from "../session.ts";
@@ -8,6 +8,18 @@ import { ID_PARAM_SCHEMA } from "../lib/schemas.ts";
 import { activeOfferingCounts } from "../lib/offerings.ts";
 import { effectiveMaintenance } from "../lib/maintenance.ts";
 import { deterministicAnagram } from "../lib/anagram.ts";
+
+/** Vérifie si l'utilisateur de la requête est membre d'un cimetière donné. */
+async function isCemeteryMember(companyId: string, request: FastifyRequest): Promise<boolean> {
+  const sessionUser = await getSessionUser(request);
+  if (!sessionUser) return false;
+  const rows = await db
+    .select({ id: companyMembers.id })
+    .from(companyMembers)
+    .where(and(eq(companyMembers.companyId, companyId), eq(companyMembers.userId, sessionUser.id)))
+    .limit(1);
+  return rows.length > 0;
+}
 
 export async function colleagueRoutes(app: FastifyInstance) {
   // Liste des collègues (tombes) d'un cimetière.
@@ -53,16 +65,7 @@ export async function colleagueRoutes(app: FastifyInstance) {
     const counts = await activeOfferingCounts(rows.map((r) => r.id), now);
 
     // Vérifier si l'utilisateur courant est membre (issue #22).
-    const sessionUser = await getSessionUser(request);
-    const isMember = sessionUser
-      ? (
-          await db
-            .select({ id: companyMembers.id })
-            .from(companyMembers)
-            .where(and(eq(companyMembers.companyId, id), eq(companyMembers.userId, sessionUser.id)))
-            .limit(1)
-        ).length > 0
-      : false;
+    const isMember = await isCemeteryMember(id, request);
 
     const enriched = rows.map((r) => ({
       id: r.id,
@@ -141,4 +144,56 @@ export async function colleagueRoutes(app: FastifyInstance) {
       return reply.code(201).send(created);
     },
   );
+
+  // Détail d'un collègue par son id (issue #18 : lien de partage vers une tombe).
+  app.get("/api/colleagues/:id", { schema: { params: ID_PARAM_SCHEMA } }, async (request, reply) => {
+    const { id } = request.params as { id: string };
+
+    const [row] = await db
+      .select({
+        id: colleagues.id,
+        name: colleagues.name,
+        quote: colleagues.quote,
+        departedOn: colleagues.departedOn,
+        graveSeed: colleagues.graveSeed,
+        voteScore: colleagues.voteScore,
+        maintenance: colleagues.maintenance,
+        maintainedAt: colleagues.maintainedAt,
+        createdAt: colleagues.createdAt,
+        companyId: colleagues.companyId,
+        companyName: companies.name,
+        companySlug: companies.slug,
+        companyClosed: companies.closedAt,
+      })
+      .from(colleagues)
+      .innerJoin(companies, eq(companies.id, colleagues.companyId))
+      .where(eq(colleagues.id, id))
+      .limit(1);
+
+    if (!row) return reply.code(404).send({ error: "Tombe introuvable." });
+
+    const now = new Date();
+    const counts = await activeOfferingCounts([id], now);
+    const [karmaRow] = await db
+      .select({ karma: sql<number>`coalesce(sum(${colleagues.voteScore}), 0)::int` })
+      .from(colleagues)
+      .where(eq(colleagues.companyId, row.companyId));
+
+    const isMember = await isCemeteryMember(row.companyId, request);
+
+    return {
+      id: row.id,
+      name: isMember ? row.name : deterministicAnagram(row.name),
+      quote: row.quote,
+      departedOn: row.departedOn,
+      graveSeed: row.graveSeed,
+      voteScore: row.voteScore,
+      maintenance: effectiveMaintenance(row.maintenance, row.maintainedAt ?? row.createdAt, now),
+      createdAt: row.createdAt,
+      offeringCounts: counts.get(id) ?? { flower: 0, candle: 0, stone: 0 },
+      company: { id: row.companyId, name: row.companyName, slug: row.companySlug, closed: row.companyClosed !== null },
+      karma: karmaRow?.karma ?? 0,
+      anonymized: !isMember,
+    };
+  });
 }

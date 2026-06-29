@@ -48,6 +48,13 @@ export type CompanyDetail = {
   anonymized: boolean;
 };
 
+/** Détail d'un collègue avec son cimetière (lien de partage, issue #18). */
+export type ColleagueDetail = Colleague & {
+  company: { id: string; name: string; slug: string; closed: boolean };
+  karma: number;
+  anonymized: boolean;
+};
+
 /** Message laissé dans le livre d'or d'une tombe (issue #9). */
 export type GraveMessage = {
   id: string;

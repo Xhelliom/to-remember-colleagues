@@ -1,5 +1,5 @@
 import { createAuthClient } from "better-auth/client";
-import type { Company, CompanyDetail, Colleague, GraveMessage, OfferingCounts, OfferingType, User } from "./types.ts";
+import type { Company, CompanyDetail, Colleague, ColleagueDetail, GraveMessage, OfferingCounts, OfferingType, User } from "./types.ts";
 
 export const authClient = createAuthClient({
   basePath: "/api/auth",
@@ -93,6 +93,14 @@ export async function reopenCompany(companyId: string): Promise<void> {
     credentials: "include",
   });
   await json<unknown>(res);
+}
+
+// --- Lien de partage (#18) ---
+
+export async function getColleagueById(id: string): Promise<ColleagueDetail> {
+  return json<ColleagueDetail>(
+    await fetch(`/api/colleagues/${id}`, { credentials: "include" }),
+  );
 }
 
 // --- Livre d'or (#9) ---
