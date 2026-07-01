@@ -107,7 +107,7 @@ et la position (herbe dense au centre, terre/mousse en bordure).
 
 ---
 
-## Phase 4 — Arbres & rochers instanciés [ ]
+## Phase 4 — Arbres & rochers instanciés [x]
 
 **Objectif** : peupler la parcelle avec des arbres et rochers GLTF via `InstancedMesh`.
 
@@ -144,5 +144,5 @@ et la position (herbe dense au centre, terre/mousse en bordure).
 Phase 1 — Herbe GPU instanciée + vent     [x] terminé
 Phase 2 — Relief terrain procédural       [x] terminé
 Phase 3 — Sol multi-texture (splat map)   [x] terminé
-Phase 4 — Arbres & rochers instanciés     [ ] non démarré
+Phase 4 — Arbres & rochers instanciés     [x] terminé
 ```

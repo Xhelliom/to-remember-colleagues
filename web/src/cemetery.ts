@@ -13,6 +13,7 @@ import { Decor } from "./scene/decor.ts";
 import { buildGroundMaterial } from "./scene/grass.ts";
 import { GrassField, shouldHaveGrass, MAX_BLADES } from "./scene/grassField.ts";
 import { TerrainChunk } from "./scene/terrain.ts";
+import { VegetationInstances } from "./scene/vegetation.ts";
 import { FirstPersonControls, EYE_HEIGHT } from "./scene/controls.ts";
 
 const FOV = 70;
@@ -56,6 +57,8 @@ export class Cemetery {
   private readonly groundPlanesGroup = new THREE.Group();
   private readonly grassFields: GrassField[] = [];
   private readonly terrains = new Map<string, TerrainChunk>();
+  private readonly vegetations: VegetationInstances[] = [];
+  private readonly vegetationGroup = new THREE.Group();
   private readonly worldGroup = new THREE.Group();
   private readonly peersGroup = new THREE.Group();
 
@@ -98,7 +101,7 @@ export class Cemetery {
     this.scene.add(this.sky.mesh);
     this.scene.fog = new THREE.FogExp2(0xc7d6e6, 0.01);
     this.lighting.addTo(this.scene);
-    this.scene.add(this.gravesGroup, this.grassGroup, this.groundPlanesGroup, this.decor.group, this.worldGroup, this.peersGroup);
+    this.scene.add(this.gravesGroup, this.grassGroup, this.groundPlanesGroup, this.decor.group, this.worldGroup, this.peersGroup, this.vegetationGroup);
 
     this.ground = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.groundMat);
     this.ground.rotation.x = -Math.PI / 2;
@@ -282,14 +285,16 @@ export class Cemetery {
       const mat = buildGroundMaterial(slot.id, slot.company.karma, this.ambiance.seasonKey, slot.plotHalf);
       const terrain = new TerrainChunk(slot.id, slot.plotHalf, slot.plotCenter, mat);
 
-      const [detail, grassField] = await Promise.all([
+      const [detail, grassField, veg] = await Promise.all([
         this.loader(slot.id),
         shouldHaveGrass(slot.company.karma, this.ambiance.seasonKey)
           ? GrassField.create(slot.id, slot.company.karma, slot.plotHalf, slot.plotCenter, slot.rotY, terrain)
           : Promise.resolve(null),
+        VegetationInstances.create(slot.id, slot.plotHalf, slot.plotCenter, slot.rotY, terrain),
       ]);
       if (!this.slots.includes(slot)) {
         if (grassField) grassField.dispose();
+        if (veg) veg.dispose();
         terrain.dispose();
         return; // on a quitté le monde entre-temps
       }
@@ -300,6 +305,10 @@ export class Cemetery {
       if (grassField) {
         this.grassGroup.add(grassField.mesh);
         this.grassFields.push(grassField);
+      }
+      if (veg) {
+        for (const m of veg.meshes) this.vegetationGroup.add(m);
+        this.vegetations.push(veg);
       }
     } catch {
       // ponytail: pas de backoff ; le cimetière reste vide jusqu'au prochain enterWorld.
@@ -341,6 +350,9 @@ export class Cemetery {
     for (const field of this.grassFields) field.dispose();
     this.grassFields.length = 0;
     this.grassGroup.clear();
+    for (const v of this.vegetations) v.dispose();
+    this.vegetations.length = 0;
+    this.vegetationGroup.clear();
     for (const t of this.terrains.values()) t.dispose();
     this.terrains.clear();
     disposeObject(this.groundPlanesGroup);
@@ -457,6 +469,11 @@ export class Cemetery {
       field.update(t);
       const d = Math.hypot(field.center.x - cam.x, field.center.z - cam.z);
       field.mesh.count = d < GRASS_LOD_RADIUS ? MAX_BLADES : GRASS_LOD_FAR;
+    }
+    for (const v of this.vegetations) {
+      const dv = Math.hypot(v.center.x - cam.x, v.center.z - cam.z);
+      const visible = dv < LOAD_RADIUS * 1.5;
+      for (const m of v.meshes) m.count = visible ? (m.userData.maxCount as number) : 0;
     }
     this.renderer.render(this.scene, this.camera);
   };
