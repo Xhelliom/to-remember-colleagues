@@ -187,6 +187,27 @@ partielle, ou si le typecheck/build casse.
 - **HUD** : pas de framework ; `web/src/ui/*` manipule `index.html` par id.
   Échapper systématiquement le HTML injecté (`escapeHtml`).
 
+## Génération d'images (gpt-image-2)
+
+Le skill `gpt-image-2` est disponible pour générer des concepts visuels et assets.
+Les images sont à sauvegarder dans `images/` à la racine du projet et commitées.
+
+```bash
+# Qualités disponibles : low | medium | high (pas standard/hd)
+# Tailles : 1024x1024 | 1792x1024 | 1024x1792
+curl -s --max-time 90 https://api.openai.com/v1/images/generations \
+  -H "Authorization: Bearer $OPENAI_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"gpt-image-2","prompt":"...","n":1,"size":"1024x1024","quality":"low"}' \
+  -o /tmp/img.json && python3 -c '
+import json,base64
+d=json.load(open("/tmp/img.json"))
+open("images/mon-concept.png","wb").write(base64.b64decode(d["data"][0]["b64_json"]))
+'
+# Utiliser le skill via : Skill("gpt-image-2", args="prompt...")
+# Le script du skill utilise quality "standard/hd" (incorrect) — appeler curl directement.
+```
+
 ## Conventions Git
 
 - Branche de développement : `claude/3d-cemetery-web-app-71uxwr`.
