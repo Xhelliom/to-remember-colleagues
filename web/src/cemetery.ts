@@ -1,9 +1,6 @@
 import * as THREE from "three";
 import type { Colleague, Company, CompanyDetail } from "./types.ts";
-import { createGrave } from "./graves.ts";
-import { graveAxes } from "./graveAxes.ts";
-import { cemeteryLayout } from "./procedural.ts";
-import { buildWorld, type WorldSlotWithCompany } from "./world.ts";
+import { buildWorld } from "./world.ts";
 import { Presence, type PeerState } from "./net.ts";
 import { makeAvatar, showEmote, tickEmote, type Avatar } from "./avatars.ts";
 import { applyWeather, getAmbiance, resolveSeasonKey, resolveTimeKey, type Ambiance, type SeasonSetting, type TimeSetting, type WeatherKey } from "./ambiance.ts";
@@ -11,10 +8,9 @@ import { createSky, type Sky } from "./scene/sky.ts";
 import { HdriSky } from "./scene/hdriSky.ts";
 import { Lighting } from "./scene/lighting.ts";
 import { Decor } from "./scene/decor.ts";
-import { buildGroundMaterial } from "./scene/grass.ts";
-import { GrassField, shouldHaveGrass, MAX_BLADES } from "./scene/grassField.ts";
-import { TerrainChunk } from "./scene/terrain.ts";
-import { VegetationInstances } from "./scene/vegetation.ts";
+import { CHUNK_LOAD_RADIUS } from "./chunkStreaming.ts";
+import { WorldStreamer } from "./scene/worldStreamer.ts";
+import { disposeObject } from "./scene/disposeObject.ts";
 import { FirstPersonControls, EYE_HEIGHT } from "./scene/controls.ts";
 
 const FOV = 70;
@@ -23,13 +19,9 @@ const FAR = 400;
 const MAX_PIXEL_RATIO = 2;
 const MAX_DELTA = 0.05;
 const FOCUS_RADIUS = 3.2;
-const LOAD_RADIUS = 24; // marge d'approche au-delà de la parcelle pour charger « à vue »
-const UNLOAD_RADIUS = 100; // distance depuis le centre pour décharger (hysterèse avec LOAD_RADIUS)
 const GRASS_LOD_RADIUS = 30; // en dessous : rendu complet
 const GRASS_LOD_MED = 50;    // en dessous : rendu réduit ; au-delà : zéro
 const GRASS_LOD_FAR = 400;   // instances pour les parcelles en LOD intermédiaire
-const MAX_CONCURRENT_LOADS = 2; // cimetières chargés en parallèle max
-const NEAR_MARGIN = 3; // tolérance pour se considérer « à » un cimetière (HUD, ajout)
 const GROUND_PAD = 60; // débord du sol autour des bornes du monde
 const PARTICLE_HALF = 60; // demi-étendue des particules d'ambiance autour du spawn
 const PEER_SMOOTH_RATE = 10; // lissage exponentiel de l'interpolation des pairs
@@ -62,13 +54,17 @@ export class Cemetery {
   private readonly gravesGroup = new THREE.Group();
   private readonly grassGroup = new THREE.Group();
   private readonly groundPlanesGroup = new THREE.Group();
-  private readonly grassFields = new Map<string, GrassField>();
-  private readonly terrains = new Map<string, TerrainChunk>();
-  private readonly vegetations = new Map<string, VegetationInstances>();
   private readonly vegetationGroup = new THREE.Group();
-  private loadingCount = 0; // chargements actifs (throttle)
   private readonly worldGroup = new THREE.Group();
   private readonly peersGroup = new THREE.Group();
+  /** Charge/décharge les chunks des cimetières à l'approche (#5). */
+  private readonly streamer = new WorldStreamer(
+    {
+      gravesGroup: this.gravesGroup, grassGroup: this.grassGroup, groundPlanesGroup: this.groundPlanesGroup,
+      vegetationGroup: this.vegetationGroup, worldGroup: this.worldGroup,
+    },
+    () => this.ambiance,
+  );
 
   private ambiance: Ambiance;
   private timeSetting: TimeSetting = "auto";
@@ -86,14 +82,6 @@ export class Cemetery {
 
   private focusCb: (c: Colleague | null) => void = () => {};
   private focused: Colleague | null = null;
-
-  // Monde continu + chargement « à vue ».
-  private slots: WorldSlotWithCompany[] = [];
-  private loader: ColleagueLoader = async () => ({ company: {} as CompanyDetail["company"], colleagues: [], karma: 0, anonymized: false });
-  private readonly loaded = new Map<string, Colleague[]>(); // tombes déjà construites
-  private readonly requested = new Set<string>(); // déjà chargé ou en cours (anti-spam)
-  private nearestId: string | null = null;
-  private nearestCb: (c: Company | null) => void = () => {};
 
   // Présence multijoueur (#4).
   private readonly presence = new Presence();
@@ -155,7 +143,7 @@ export class Cemetery {
 
   /** Cimetière le plus proche (où l'on se tient) ou null si l'on est sur la route. */
   onNearestCemetery(cb: (c: Company | null) => void) {
-    this.nearestCb = cb;
+    this.streamer.onNearestCemetery(cb);
   }
 
   onVisitorCount(cb: (n: number) => void) {
@@ -168,7 +156,7 @@ export class Cemetery {
   }
 
   setColleagueLoader(loader: ColleagueLoader) {
-    this.loader = loader;
+    this.streamer.setLoader(loader);
   }
 
   setVisitorName(name: string) {
@@ -199,38 +187,27 @@ export class Cemetery {
   enterWorld(companies: Company[], spawnCompanyId?: string) {
     this.clearWorld();
     const world = buildWorld(companies, this.ambiance);
-    this.slots = world.slots;
+    this.streamer.enter(world.slots);
     this.worldGroup.add(world.group);
     this.resizeGround(world.bounds);
     this.controls.setBoundsRect(world.bounds);
 
-    const spawn = spawnCompanyId ? this.slots.find((s) => s.id === spawnCompanyId)?.entrance : undefined;
+    const spawn = spawnCompanyId ? world.slots.find((s) => s.id === spawnCompanyId)?.entrance : undefined;
     const start = spawn ?? world.start;
     this.controls.placeAt(start.x, start.z);
 
     this.decor.build(this.ambiance, PARTICLE_HALF, { structures: false });
     this.connectRoom(WORLD_ROOM);
-    this.updateStreaming(); // charge ce qui est déjà à portée du spawn
+    this.streamer.update({ x: start.x, z: start.z }); // charge ce qui est déjà à portée du spawn
   }
 
   /** Ajoute un collègue au cimetière où l'on se tient et reconstruit ses tombes. */
   addColleague(companyId: string, colleague: Colleague) {
-    const list = this.loaded.get(companyId);
-    if (!list) return; // pas encore chargé : apparaîtra à l'approche
-    list.push(colleague);
-    const slot = this.slots.find((s) => s.id === companyId);
-    if (slot) this.buildCemeteryGraves(slot, list);
+    this.streamer.addColleague(companyId, colleague);
   }
 
   updateColleague(colleague: Colleague) {
-    for (const [companyId, list] of this.loaded) {
-      const idx = list.findIndex((c) => c.id === colleague.id);
-      if (idx < 0) continue;
-      list[idx] = colleague;
-      const slot = this.slots.find((s) => s.id === companyId);
-      if (slot) this.buildCemeteryGraves(slot, list);
-      break;
-    }
+    this.streamer.updateColleague(colleague);
   }
 
   /** Place la caméra à proximité d'une tombe donnée (issue #18 : lien de partage). */
@@ -250,12 +227,7 @@ export class Cemetery {
     const graveColorChanged = next.graveColor !== this.ambiance.graveColor;
     this.ambiance = next;
     this.applyAmbiance(next);
-    if (graveColorChanged) {
-      for (const slot of this.slots) {
-        const list = this.loaded.get(slot.id);
-        if (list) this.buildCemeteryGraves(slot, list);
-      }
-    }
+    if (graveColorChanged) this.streamer.rebuildAllLoadedGraves();
   }
 
   /** Quitte tout salon de présence (retour menu / déconnexion, issue #4). */
@@ -305,140 +277,16 @@ export class Cemetery {
     this.sky.mesh.visible = !used;
   }
 
-  // ---- Monde continu : chargement « à vue » ----
-
-  private updateStreaming() {
-    const cam = this.camera.position;
-    let nearestId: string | null = null;
-    let best = Infinity;
-    for (const slot of this.slots) {
-      const d = Math.hypot(slot.plotCenter.x - cam.x, slot.plotCenter.z - cam.z);
-      if (d > UNLOAD_RADIUS && this.loaded.has(slot.id)) {
-        this.unloadCemetery(slot.id);
-      } else if (d < slot.plotHalf + LOAD_RADIUS && !this.requested.has(slot.id) && this.loadingCount < MAX_CONCURRENT_LOADS) {
-        void this.loadCemetery(slot);
-      }
-      if (d < slot.plotHalf + NEAR_MARGIN && d < best) {
-        best = d;
-        nearestId = slot.id;
-      }
-    }
-    if (nearestId !== this.nearestId) {
-      this.nearestId = nearestId;
-      this.nearestCb(nearestId ? this.slots.find((s) => s.id === nearestId)!.company : null);
-    }
-  }
-
-  private unloadCemetery(slotId: string) {
-    const terrain = this.terrains.get(slotId);
-    if (terrain) {
-      this.groundPlanesGroup.remove(terrain.mesh);
-      terrain.dispose();
-      this.terrains.delete(slotId);
-    }
-    const field = this.grassFields.get(slotId);
-    if (field) {
-      this.grassGroup.remove(field.mesh);
-      field.dispose();
-      this.grassFields.delete(slotId);
-    }
-    const veg = this.vegetations.get(slotId);
-    if (veg) {
-      for (const m of veg.meshes) this.vegetationGroup.remove(m);
-      veg.dispose();
-      this.vegetations.delete(slotId);
-    }
-    this.removeCemeteryGraves(slotId);
-    this.loaded.delete(slotId);
-    this.requested.delete(slotId); // permet le rechargement au retour
-  }
-
-  private async loadCemetery(slot: WorldSlotWithCompany) {
-    this.requested.add(slot.id); // une seule tentative par session (anti-spam au survol)
-    this.loadingCount++;
-    try {
-      // Le terrain est construit en premier : herbe et tombes s'y calent.
-      const mat = buildGroundMaterial(slot.id, slot.company.karma, this.ambiance.seasonKey, slot.plotHalf);
-      const terrain = new TerrainChunk(slot.id, slot.plotHalf, slot.plotCenter, mat);
-
-      const [detail, grassField, veg] = await Promise.all([
-        this.loader(slot.id),
-        shouldHaveGrass(slot.company.karma, this.ambiance.seasonKey)
-          ? GrassField.create(slot.id, slot.company.karma, slot.plotHalf, slot.plotCenter, slot.rotY, terrain)
-          : Promise.resolve(null),
-        VegetationInstances.create(slot.id, slot.plotHalf, slot.plotCenter, slot.rotY, terrain),
-      ]);
-      if (!this.slots.includes(slot)) {
-        if (grassField) grassField.dispose();
-        if (veg) veg.dispose();
-        terrain.dispose();
-        return; // on a quitté le monde entre-temps
-      }
-      this.terrains.set(slot.id, terrain);
-      this.groundPlanesGroup.add(terrain.mesh);
-      this.loaded.set(slot.id, detail.colleagues);
-      this.buildCemeteryGraves(slot, detail.colleagues);
-      if (grassField) {
-        this.grassGroup.add(grassField.mesh);
-        this.grassFields.set(slot.id, grassField);
-      }
-      if (veg) {
-        for (const m of veg.meshes) this.vegetationGroup.add(m);
-        this.vegetations.set(slot.id, veg);
-      }
-    } catch {
-      // ponytail: pas de backoff ; le cimetière reste vide jusqu'au prochain enterWorld.
-    } finally {
-      this.loadingCount--;
-    }
-  }
-
-  private buildCemeteryGraves(slot: WorldSlotWithCompany, colleagues: Colleague[]) {
-    this.removeCemeteryGraves(slot.id);
-    const layout = cemeteryLayout(slot.id, colleagues.length);
-    const terrain = this.terrains.get(slot.id);
-    const now = Date.now();
-    const cos = Math.cos(slot.rotY);
-    const sin = Math.sin(slot.rotY);
-    colleagues.forEach((colleague, i) => {
-      const place = layout.placements[i];
-      const grave = createGrave(colleague, this.ambiance.graveColor, graveAxes(colleague, now));
-      const wx = slot.plotCenter.x + place.x * cos + place.z * sin;
-      const wz = slot.plotCenter.z - place.x * sin + place.z * cos;
-      grave.position.set(wx, terrain ? terrain.getHeightAt(wx, wz) : 0, wz);
-      grave.rotation.y += place.rotY + slot.rotY;
-      grave.userData.companyId = slot.id;
-      this.gravesGroup.add(grave);
-    });
-  }
-
-  private removeCemeteryGraves(id: string) {
-    const stale = this.gravesGroup.children.filter((g) => g.userData.companyId === id);
-    for (const g of stale) {
-      this.gravesGroup.remove(g);
-      disposeObject(g);
-    }
-  }
-
   clearWorld() {
     disposeObject(this.worldGroup);
     this.worldGroup.clear();
     disposeObject(this.gravesGroup);
     this.gravesGroup.clear();
-    for (const field of this.grassFields.values()) field.dispose();
-    this.grassFields.clear();
+    this.streamer.clear();
     this.grassGroup.clear();
-    for (const v of this.vegetations.values()) v.dispose();
-    this.vegetations.clear();
     this.vegetationGroup.clear();
-    for (const t of this.terrains.values()) t.dispose();
-    this.terrains.clear();
     disposeObject(this.groundPlanesGroup);
     this.groundPlanesGroup.clear();
-    this.slots = [];
-    this.loaded.clear();
-    this.requested.clear();
-    this.nearestId = null;
     this.focused = null;
   }
 
@@ -502,12 +350,7 @@ export class Cemetery {
       this.ambiance = next;
       this.applyAmbiance(next);
       // Reconstruit les tombes chargées si la couleur de pierre change.
-      if (graveColorChanged) {
-        for (const slot of this.slots) {
-          const list = this.loaded.get(slot.id);
-          if (list) this.buildCemeteryGraves(slot, list);
-        }
-      }
+      if (graveColorChanged) this.streamer.rebuildAllLoadedGraves();
       this.ambianceRefreshAt = now + 60_000;
     }
   }
@@ -561,7 +404,7 @@ export class Cemetery {
     if (this.running) {
       this.controls.update(dt);
       this.updateFocus();
-      this.updateStreaming();
+      this.streamer.update({ x: this.camera.position.x, z: this.camera.position.z });
       this.publishPresence();
     }
     this.updatePeers(dt);
@@ -569,15 +412,19 @@ export class Cemetery {
     this.maybeRefreshAmbiance();
     const t = this.clock.elapsedTime;
     const cam = this.camera.position;
-    for (const field of this.grassFields.values()) {
-      field.update(t);
-      const d = Math.hypot(field.center.x - cam.x, field.center.z - cam.z);
-      field.mesh.count = d < GRASS_LOD_RADIUS ? MAX_BLADES : d < GRASS_LOD_MED ? GRASS_LOD_FAR : 0;
-    }
-    for (const v of this.vegetations.values()) {
-      const dv = Math.hypot(v.center.x - cam.x, v.center.z - cam.z);
-      const visible = dv < LOAD_RADIUS * 1.5;
-      for (const m of v.meshes) m.count = visible ? (m.userData.maxCount as number) : 0;
+    for (const chunk of this.streamer.loadedChunks.values()) {
+      const field = chunk.grass;
+      if (field) {
+        field.update(t);
+        const d = Math.hypot(field.center.x - cam.x, field.center.z - cam.z);
+        field.mesh.count = d < GRASS_LOD_RADIUS ? field.bladeCount : d < GRASS_LOD_MED ? Math.min(field.bladeCount, GRASS_LOD_FAR) : 0;
+      }
+      const veg = chunk.veg;
+      if (veg) {
+        const dv = Math.hypot(veg.center.x - cam.x, veg.center.z - cam.z);
+        const visible = dv < CHUNK_LOAD_RADIUS * 1.5;
+        for (const m of veg.meshes) m.count = visible ? (m.userData.maxCount as number) : 0;
+      }
     }
     this.renderer.render(this.scene, this.camera);
   };
@@ -612,21 +459,4 @@ export class Cemetery {
       }
     }
   };
-}
-
-/** Libère géométries ET matériaux/textures d'un objet (sans vider le groupe). */
-function disposeObject(root: THREE.Object3D) {
-  root.traverse((obj) => {
-    const mesh = obj as THREE.Mesh;
-    if (mesh.geometry) mesh.geometry.dispose();
-    const mat = mesh.material;
-    for (const m of Array.isArray(mat) ? mat : mat ? [mat] : []) {
-      const map = (m as THREE.MeshStandardMaterial).map;
-      if (map) map.dispose();
-      // splatTex est une DataTexture hors du circuit standard de dispose
-      const splatTex = m.userData?.splatTex as THREE.DataTexture | undefined;
-      if (splatTex) splatTex.dispose();
-      m.dispose();
-    }
-  });
 }

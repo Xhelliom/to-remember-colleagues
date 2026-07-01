@@ -1,14 +1,20 @@
-// Arbres et rochers instanciés (InstancedMesh) par parcelle de cimetière.
-// Un InstancedMesh par sous-mesh GLTF → tronc + feuillage rendus correctement.
+// Arbres et rochers instanciés (InstancedMesh) par TRANCHE [zStart, zEnd[ du
+// couloir d'un cimetière (phase 3) — un InstancedMesh par sous-mesh GLTF (tronc
+// + feuillage rendus correctement), densité proportionnelle à l'aire de la tranche.
 import * as THREE from "three";
 import { seededRandom } from "../graves.ts";
-import { hashSeed } from "../procedural.ts";
+import { hashSeed, type ClusterInfo } from "../procedural.ts";
+import { toWorld, type Frame } from "../worldLayout.ts";
 import { loadGltf } from "./grass.ts";
 import type { TerrainChunk } from "./terrain.ts";
 
-const TREE_COUNT = 10;
-const ROCK_COUNT = 7;
-const BORDER_MARGIN = 1.5; // arbres en retrait du mur d'enceinte (m)
+const TREE_DENSITY = 0.004; // arbres par m², calée sur la densité visuelle précédente
+const ROCK_DENSITY = 0.0028;
+const BORDER_MARGIN = 1.5; // retrait des murs latéraux et des bouts de chemin
+const CLUSTER_TREE_SCALE = 3.5; // méga-arbre, échelle disproportionnée (mini-biome, phase 4)
+const CLUSTER_ROCK_STACK = 4; // empilement de rochers = fausse falaise
+const CLUSTER_ROCK_BASE_SCALE = 1.4;
+const CLUSTER_ROCK_SCALE_DECAY = 0.18; // rétrécit à chaque rocher empilé
 
 function treePath(companyId: string): string {
   return hashSeed(companyId + ":trees") % 2 === 0
@@ -30,37 +36,61 @@ function extractSubMeshes(root: THREE.Group): SubMesh[] {
   return result;
 }
 
-/** Construit les matrices de placement pour `count` instances. */
+/** Bornes [zLo, zHi] : dégagées uniquement aux vrais bouts du chemin (jamais aux jointures internes). */
+function clampedZRange(zStart: number, zEnd: number, plotDepth: number): [number, number] {
+  const zLo = zStart <= 0 ? BORDER_MARGIN : zStart;
+  const zHi = zEnd >= plotDepth ? plotDepth - BORDER_MARGIN : zEnd;
+  return [zLo, zHi];
+}
+
+/** Construit les matrices de placement (dispersion uniforme dans le rectangle de la tranche). */
 function buildPlacementMatrices(
-  companyId: string, suffix: string, count: number, r: number,
-  plotCenter: { x: number; z: number }, rotY: number,
+  companyId: string, suffix: string, count: number,
+  frame: Frame, halfWidth: number, zLo: number, zHi: number,
   terrain: TerrainChunk | undefined,
-  placeFn: (rand: () => number, i: number, r: number) => { lx: number; lz: number; ry: number; sc: number },
+  scaleMin: number, scaleRange: number,
 ): THREE.Matrix4[] {
-  const rand = seededRandom(hashSeed(companyId + suffix));
-  const cos = Math.cos(rotY);
-  const sin = Math.sin(rotY);
+  const rand = seededRandom(hashSeed(companyId + suffix + `:${zLo}`));
   const dummy = new THREE.Object3D();
-  return Array.from({ length: count }, (_, i) => {
-    const { lx, lz, ry, sc } = placeFn(rand, i, r);
-    const wx = plotCenter.x + lx * cos + lz * sin;
-    const wz = plotCenter.z - lx * sin + lz * cos;
+  return Array.from({ length: count }, () => {
+    const lx = (rand() * 2 - 1) * halfWidth;
+    const lz = zLo + rand() * (zHi - zLo);
+    const { x: wx, z: wz } = toWorld(frame, lx, lz);
     dummy.position.set(wx, terrain ? terrain.getHeightAt(wx, wz) : 0, wz);
-    dummy.rotation.y = ry;
-    dummy.scale.setScalar(sc);
+    dummy.rotation.y = rand() * Math.PI * 2;
+    dummy.scale.setScalar(scaleMin + rand() * scaleRange);
     dummy.updateMatrix();
     return dummy.matrix.clone();
   });
 }
 
-function treePlace(rand: () => number, i: number, r: number) {
-  const angle = (i / TREE_COUNT) * Math.PI * 2 + rand() * 0.4;
-  const dist = r - rand() * 2;
-  return { lx: Math.cos(angle) * dist, lz: Math.sin(angle) * dist, ry: rand() * Math.PI * 2, sc: 0.8 + rand() * 0.6 };
+/** Méga-arbre au centre d'un cluster « tree » (mini-biome, phase 4). */
+function clusterTreeMatrix(frame: Frame, cluster: ClusterInfo, terrain?: TerrainChunk): THREE.Matrix4 {
+  const { x: wx, z: wz } = toWorld(frame, cluster.x, cluster.z);
+  const dummy = new THREE.Object3D();
+  dummy.position.set(wx, terrain ? terrain.getHeightAt(wx, wz) : 0, wz);
+  dummy.scale.setScalar(CLUSTER_TREE_SCALE);
+  dummy.updateMatrix();
+  return dummy.matrix.clone();
 }
 
-function rockPlace(rand: () => number, _i: number, r: number) {
-  return { lx: (rand() * 2 - 1) * r, lz: (rand() * 2 - 1) * r, ry: rand() * Math.PI * 2, sc: 0.2 + rand() * 0.6 };
+/** Empilement de rochers au centre d'un cluster « rocks » (fausse falaise, phase 4). */
+function clusterRockMatrices(frame: Frame, cluster: ClusterInfo, terrain?: TerrainChunk): THREE.Matrix4[] {
+  const { x: wx, z: wz } = toWorld(frame, cluster.x, cluster.z);
+  const baseY = terrain ? terrain.getHeightAt(wx, wz) : 0;
+  const dummy = new THREE.Object3D();
+  const matrices: THREE.Matrix4[] = [];
+  let y = baseY;
+  for (let i = 0; i < CLUSTER_ROCK_STACK; i++) {
+    const scale = CLUSTER_ROCK_BASE_SCALE * (1 - i * CLUSTER_ROCK_SCALE_DECAY);
+    dummy.position.set(wx, y, wz);
+    dummy.rotation.y = i * 1.3;
+    dummy.scale.setScalar(scale);
+    dummy.updateMatrix();
+    matrices.push(dummy.matrix.clone());
+    y += scale * 0.9; // empile approximativement chaque rocher sur le précédent
+  }
+  return matrices;
 }
 
 function buildInstancedMeshes(srcs: SubMesh[], matrices: THREE.Matrix4[], count: number): THREE.InstancedMesh[] {
@@ -75,7 +105,7 @@ function buildInstancedMeshes(srcs: SubMesh[], matrices: THREE.Matrix4[], count:
   });
 }
 
-/** Arbres et rochers instanciés d'une parcelle. */
+/** Arbres et rochers instanciés d'une tranche de cimetière. */
 export class VegetationInstances {
   readonly meshes: THREE.InstancedMesh[];
   readonly center: { x: number; z: number };
@@ -87,9 +117,12 @@ export class VegetationInstances {
 
   static async create(
     companyId: string,
-    plotHalf: number,
-    plotCenter: { x: number; z: number },
-    rotY: number,
+    frame: Frame,
+    plotWidth: number,
+    plotDepth: number,
+    zStart: number,
+    zEnd: number,
+    clustersInChunk: ClusterInfo[],
     terrain?: TerrainChunk,
   ): Promise<VegetationInstances | null> {
     const [treeRes, rockRes] = await Promise.allSettled([
@@ -97,26 +130,38 @@ export class VegetationInstances {
       loadGltf("/models/rock/rock_01_2k/rock_01_2k.gltf"),
     ]);
 
+    const halfWidth = plotWidth / 2 - BORDER_MARGIN;
+    const [zLo, zHi] = clampedZRange(zStart, zEnd, plotDepth);
+    const area = plotWidth * (zHi - zLo);
+    const treeCount = Math.max(1, Math.round(TREE_DENSITY * area));
+    const rockCount = Math.max(1, Math.round(ROCK_DENSITY * area));
+    const treeProps = clustersInChunk.filter((c) => c.propKind === "tree");
+    const rockProps = clustersInChunk.filter((c) => c.propKind === "rocks");
+
     const meshes: THREE.InstancedMesh[] = [];
 
     if (treeRes.status === "fulfilled") {
       const srcs = extractSubMeshes(treeRes.value);
       if (srcs.length) {
-        const mats = buildPlacementMatrices(companyId, ":trees", TREE_COUNT, plotHalf - BORDER_MARGIN, plotCenter, rotY, terrain, treePlace);
-        meshes.push(...buildInstancedMeshes(srcs, mats, TREE_COUNT));
+        const ambient = buildPlacementMatrices(companyId, ":trees", treeCount, frame, halfWidth, zLo, zHi, terrain, 0.8, 0.6);
+        const props = treeProps.map((c) => clusterTreeMatrix(frame, c, terrain));
+        const mats = [...ambient, ...props];
+        meshes.push(...buildInstancedMeshes(srcs, mats, mats.length));
       }
     }
 
     if (rockRes.status === "fulfilled") {
       const srcs = extractSubMeshes(rockRes.value);
       if (srcs.length) {
-        const mats = buildPlacementMatrices(companyId, ":rocks", ROCK_COUNT, Math.max(1, plotHalf - 3), plotCenter, rotY, terrain, rockPlace);
-        meshes.push(...buildInstancedMeshes(srcs, mats, ROCK_COUNT));
+        const ambient = buildPlacementMatrices(companyId, ":rocks", rockCount, frame, halfWidth, zLo, zHi, terrain, 0.2, 0.6);
+        const props = rockProps.flatMap((c) => clusterRockMatrices(frame, c, terrain));
+        const mats = [...ambient, ...props];
+        meshes.push(...buildInstancedMeshes(srcs, mats, mats.length));
       }
     }
 
     if (!meshes.length) return null;
-    return new VegetationInstances(meshes, plotCenter);
+    return new VegetationInstances(meshes, toWorld(frame, 0, (zStart + zEnd) / 2));
   }
 
   dispose() {

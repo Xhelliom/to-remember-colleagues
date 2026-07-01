@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { worldLayout } from "./worldLayout.ts";
+import { distanceToSlot, slotCorners, worldLayout } from "./worldLayout.ts";
 
 const companies = (n: number) =>
   Array.from({ length: n }, (_, i) => ({ id: `org-${i}`, graveCount: 10 + i }));
@@ -25,14 +25,60 @@ describe("worldLayout (monde continu, évolution #5)", () => {
   it("place les parcelles hors de la route (au-delà de sa demi-largeur)", () => {
     for (const slot of worldLayout(companies(5)).slots) {
       expect(Math.hypot(slot.plotCenter.x, 0)).toBeGreaterThan(0);
-      // La parcelle entière tient dans les bornes du monde.
-      const { bounds } = worldLayout(companies(5));
-      expect(slot.plotCenter.x - slot.plotHalf).toBeGreaterThanOrEqual(bounds.minX);
-      expect(slot.plotCenter.x + slot.plotHalf).toBeLessThanOrEqual(bounds.maxX);
     }
   });
 
   it("allonge le monde (vers -Z) avec le nombre de cimetières", () => {
     expect(worldLayout(companies(12)).bounds.minZ).toBeLessThan(worldLayout(companies(3)).bounds.minZ);
+  });
+
+  it("les emprises (le long de la route) de deux cimetières consécutifs ne se chevauchent jamais, quelle que soit leur taille (2.2)", () => {
+    const varied = [
+      { id: "a", graveCount: 3 },
+      { id: "b", graveCount: 600 },
+      { id: "c", graveCount: 10 },
+      { id: "d", graveCount: 900 },
+      { id: "e", graveCount: 1 },
+    ];
+    const { slots, centerline } = worldLayout(varied);
+    for (let k = 1; k < slots.length; k++) {
+      const gapNeeded = slots[k - 1].plotWidth / 2 + slots[k].plotWidth / 2;
+      const gapActual = Math.abs(centerline[k].z - centerline[k + 1].z);
+      expect(gapActual).toBeGreaterThanOrEqual(gapNeeded);
+    }
+  });
+
+  it("distanceToSlot reste nulle n'importe où dans l'emprise, même loin du plotCenter d'un chemin long (régression charge/décharge)", () => {
+    // Un cimetière de 900 tombes a un chemin de plusieurs centaines de mètres :
+    // son entrée peut être très loin de son plotCenter (milieu du chemin).
+    const { slots } = worldLayout([{ id: "long", graveCount: 900 }]);
+    const slot = slots[0];
+    expect(Math.hypot(slot.entrance.x - slot.plotCenter.x, slot.entrance.z - slot.plotCenter.z)).toBeGreaterThan(50);
+    expect(distanceToSlot(slot, slot.entrance)).toBeLessThan(1);
+    expect(distanceToSlot(slot, slot.plotCenter)).toBeLessThan(1);
+  });
+
+  it("distanceToSlot croît hors de l'emprise", () => {
+    const { slots } = worldLayout([{ id: "x", graveCount: 20 }]);
+    const slot = slots[0];
+    const farAway = { x: slot.entrance.x + 1000, z: slot.entrance.z + 1000 };
+    expect(distanceToSlot(slot, farAway)).toBeGreaterThan(500);
+  });
+
+  it("les bornes du monde englobent toujours les 4 coins de chaque parcelle (2.3)", () => {
+    const varied = [
+      { id: "a", graveCount: 5 },
+      { id: "b", graveCount: 700 },
+      { id: "c", graveCount: 50 },
+    ];
+    const { slots, bounds } = worldLayout(varied);
+    for (const slot of slots) {
+      for (const corner of slotCorners(slot)) {
+        expect(corner.x).toBeGreaterThanOrEqual(bounds.minX);
+        expect(corner.x).toBeLessThanOrEqual(bounds.maxX);
+        expect(corner.z).toBeGreaterThanOrEqual(bounds.minZ);
+        expect(corner.z).toBeLessThanOrEqual(bounds.maxZ);
+      }
+    }
   });
 });
