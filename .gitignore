@@ -8,6 +8,12 @@ pgdata/
 web/.vite/
 server/drizzle/meta/_journal.tmp
 
+# Assets 3D lourds (textures + modèles Poly Haven, ~339 Mo)
+web/public/models/
+web/public/textures/
+web/public/hdri/
+temp/
+
 # Tests
 test-results/
 playwright-report/
