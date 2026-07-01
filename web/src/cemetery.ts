@@ -10,6 +10,9 @@ import { getAmbiance, resolveSeasonKey, resolveTimeKey, type Ambiance, type Seas
 import { createSky, type Sky } from "./scene/sky.ts";
 import { Lighting } from "./scene/lighting.ts";
 import { Decor } from "./scene/decor.ts";
+import { buildGroundMaterial } from "./scene/grass.ts";
+import { GrassField, shouldHaveGrass, MAX_BLADES } from "./scene/grassField.ts";
+import { TerrainChunk } from "./scene/terrain.ts";
 import { FirstPersonControls, EYE_HEIGHT } from "./scene/controls.ts";
 
 const FOV = 70;
@@ -19,6 +22,8 @@ const MAX_PIXEL_RATIO = 2;
 const MAX_DELTA = 0.05;
 const FOCUS_RADIUS = 3.2;
 const LOAD_RADIUS = 24; // marge d'approche au-delà de la parcelle pour charger « à vue »
+const GRASS_LOD_RADIUS = 30; // en dessous : rendu complet ; au-delà : réduit
+const GRASS_LOD_FAR = 1_000; // instances pour les parcelles éloignées
 const NEAR_MARGIN = 3; // tolérance pour se considérer « à » un cimetière (HUD, ajout)
 const GROUND_PAD = 60; // débord du sol autour des bornes du monde
 const PARTICLE_HALF = 60; // demi-étendue des particules d'ambiance autour du spawn
@@ -47,6 +52,10 @@ export class Cemetery {
   private readonly groundMat = new THREE.MeshStandardMaterial({ roughness: 1 });
   private readonly ground: THREE.Mesh;
   private readonly gravesGroup = new THREE.Group();
+  private readonly grassGroup = new THREE.Group();
+  private readonly groundPlanesGroup = new THREE.Group();
+  private readonly grassFields: GrassField[] = [];
+  private readonly terrains = new Map<string, TerrainChunk>();
   private readonly worldGroup = new THREE.Group();
   private readonly peersGroup = new THREE.Group();
 
@@ -86,7 +95,7 @@ export class Cemetery {
     this.scene.add(this.sky.mesh);
     this.scene.fog = new THREE.FogExp2(0xc7d6e6, 0.01);
     this.lighting.addTo(this.scene);
-    this.scene.add(this.gravesGroup, this.decor.group, this.worldGroup, this.peersGroup);
+    this.scene.add(this.gravesGroup, this.grassGroup, this.groundPlanesGroup, this.decor.group, this.worldGroup, this.peersGroup);
 
     this.ground = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.groundMat);
     this.ground.rotation.x = -Math.PI / 2;
@@ -256,10 +265,29 @@ export class Cemetery {
   private async loadCemetery(slot: WorldSlotWithCompany) {
     this.requested.add(slot.id); // une seule tentative par session (anti-spam au survol)
     try {
-      const detail = await this.loader(slot.id);
-      if (!this.slots.includes(slot)) return; // on a quitté le monde entre-temps
+      // Le terrain est construit en premier : herbe et tombes s'y calent.
+      const mat = buildGroundMaterial(slot.id, slot.company.karma, this.ambiance.seasonKey, slot.plotHalf);
+      const terrain = new TerrainChunk(slot.id, slot.plotHalf, slot.plotCenter, mat);
+
+      const [detail, grassField] = await Promise.all([
+        this.loader(slot.id),
+        shouldHaveGrass(slot.company.karma, this.ambiance.seasonKey)
+          ? GrassField.create(slot.id, slot.company.karma, slot.plotHalf, slot.plotCenter, slot.rotY, terrain)
+          : Promise.resolve(null),
+      ]);
+      if (!this.slots.includes(slot)) {
+        if (grassField) grassField.dispose();
+        terrain.dispose();
+        return; // on a quitté le monde entre-temps
+      }
+      this.terrains.set(slot.id, terrain);
+      this.groundPlanesGroup.add(terrain.mesh);
       this.loaded.set(slot.id, detail.colleagues);
       this.buildCemeteryGraves(slot, detail.colleagues);
+      if (grassField) {
+        this.grassGroup.add(grassField.mesh);
+        this.grassFields.push(grassField);
+      }
     } catch {
       // ponytail: pas de backoff ; le cimetière reste vide jusqu'au prochain enterWorld.
     }
@@ -267,21 +295,17 @@ export class Cemetery {
 
   private buildCemeteryGraves(slot: WorldSlotWithCompany, colleagues: Colleague[]) {
     this.removeCemeteryGraves(slot.id);
-    // Plan procédural déterministe de la parcelle, seedé sur l'id (issue #5).
     const layout = cemeteryLayout(slot.id, colleagues.length);
+    const terrain = this.terrains.get(slot.id);
     const now = Date.now();
     const cos = Math.cos(slot.rotY);
     const sin = Math.sin(slot.rotY);
     colleagues.forEach((colleague, i) => {
       const place = layout.placements[i];
-      // Combine les 3 axes visuels indépendants de la tombe (issue #25).
       const grave = createGrave(colleague, this.ambiance.graveColor, graveAxes(colleague, now));
-      // Repère parcelle → monde : rotation rotY autour du centre de la parcelle.
-      grave.position.set(
-        slot.plotCenter.x + place.x * cos + place.z * sin,
-        0,
-        slot.plotCenter.z - place.x * sin + place.z * cos,
-      );
+      const wx = slot.plotCenter.x + place.x * cos + place.z * sin;
+      const wz = slot.plotCenter.z - place.x * sin + place.z * cos;
+      grave.position.set(wx, terrain ? terrain.getHeightAt(wx, wz) : 0, wz);
       grave.rotation.y += place.rotY + slot.rotY;
       grave.userData.companyId = slot.id;
       this.gravesGroup.add(grave);
@@ -301,6 +325,13 @@ export class Cemetery {
     this.worldGroup.clear();
     disposeObject(this.gravesGroup);
     this.gravesGroup.clear();
+    for (const field of this.grassFields) field.dispose();
+    this.grassFields.length = 0;
+    this.grassGroup.clear();
+    for (const t of this.terrains.values()) t.dispose();
+    this.terrains.clear();
+    disposeObject(this.groundPlanesGroup);
+    this.groundPlanesGroup.clear();
     this.slots = [];
     this.loaded.clear();
     this.requested.clear();
@@ -407,6 +438,13 @@ export class Cemetery {
     }
     this.updatePeers(dt);
     this.decor.update(dt, this.clock.elapsedTime);
+    const t = this.clock.elapsedTime;
+    const cam = this.camera.position;
+    for (const field of this.grassFields) {
+      field.update(t);
+      const d = Math.hypot(field.center.x - cam.x, field.center.z - cam.z);
+      field.mesh.count = d < GRASS_LOD_RADIUS ? MAX_BLADES : GRASS_LOD_FAR;
+    }
     this.renderer.render(this.scene, this.camera);
   };
 
@@ -431,6 +469,9 @@ function disposeObject(root: THREE.Object3D) {
     for (const m of Array.isArray(mat) ? mat : mat ? [mat] : []) {
       const map = (m as THREE.MeshStandardMaterial).map;
       if (map) map.dispose();
+      // splatTex est une DataTexture hors du circuit standard de dispose
+      const splatTex = m.userData?.splatTex as THREE.DataTexture | undefined;
+      if (splatTex) splatTex.dispose();
       m.dispose();
     }
   });
