@@ -13,6 +13,7 @@
     "db:migrate": "node --env-file-if-exists=.env --experimental-strip-types src/db/migrate.ts",
     "db:studio": "drizzle-kit studio",
     "seed": "node --env-file-if-exists=.env --experimental-strip-types src/seed.ts",
+    "clean:test-companies": "node --env-file-if-exists=.env --experimental-strip-types src/clean-test-companies.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

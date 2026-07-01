@@ -20,6 +20,7 @@
     "db:generate": "pnpm --filter server db:generate",
     "db:migrate": "pnpm --filter server db:migrate",
     "seed": "pnpm --filter server seed",
+    "clean:test-companies": "pnpm --filter server clean:test-companies",
     "dev:server": "pnpm --filter server dev",
     "dev:web": "pnpm --filter web dev",
     "dev": "pnpm --parallel --filter server --filter web dev",
