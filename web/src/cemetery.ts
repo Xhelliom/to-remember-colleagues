@@ -8,6 +8,7 @@ import { Presence, type PeerState } from "./net.ts";
 import { makeAvatar, showEmote, tickEmote, type Avatar } from "./avatars.ts";
 import { getAmbiance, resolveSeasonKey, resolveTimeKey, type Ambiance, type SeasonSetting, type TimeSetting } from "./ambiance.ts";
 import { createSky, type Sky } from "./scene/sky.ts";
+import { HdriSky } from "./scene/hdriSky.ts";
 import { Lighting } from "./scene/lighting.ts";
 import { Decor } from "./scene/decor.ts";
 import { buildGroundMaterial } from "./scene/grass.ts";
@@ -47,6 +48,7 @@ export class Cemetery {
   private readonly clock = new THREE.Clock();
 
   private readonly sky: Sky;
+  private readonly hdriSky: HdriSky;
   private readonly lighting = new Lighting();
   private readonly decor = new Decor();
   private readonly controls: FirstPersonControls;
@@ -98,6 +100,7 @@ export class Cemetery {
     this.camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, NEAR, FAR);
 
     this.sky = createSky();
+    this.hdriSky = new HdriSky(this.renderer);
     this.scene.add(this.sky.mesh);
     this.scene.fog = new THREE.FogExp2(0xc7d6e6, 0.01);
     this.lighting.addTo(this.scene);
@@ -254,6 +257,15 @@ export class Cemetery {
     this.groundMat.color.setHex(a.groundColor);
     // La forêt/les arches sont portées par world.ts ; ici, seulement les particules.
     this.decor.build(a, PARTICLE_HALF, { structures: false });
+    void this.applyHdriSky(a);
+  }
+
+  /** Charge (async) le ciel HDR de l'ambiance et bascule le dôme shader en
+   *  secours quand aucun HDR n'est prévu (nuit, Halloween). */
+  private async applyHdriSky(a: Ambiance) {
+    const used = await this.hdriSky.apply(this.scene, a.timeKey, a.scary);
+    if (a !== this.ambiance) return; // l'ambiance a changé entre-temps
+    this.sky.mesh.visible = !used;
   }
 
   // ---- Monde continu : chargement « à vue » ----
