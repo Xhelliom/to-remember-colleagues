@@ -5,7 +5,7 @@ import { hashSeed } from "../procedural.ts";
 import { loadGltf } from "./grass.ts";
 import type { TerrainChunk } from "./terrain.ts";
 
-export const MAX_BLADES = 6_000;
+export const MAX_BLADES = 20_000;
 const BORDER_MARGIN = 1.2;
 
 // Uniforme de temps partagé : tous les champs utilisent le même programme compilé.

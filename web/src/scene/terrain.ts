@@ -3,7 +3,7 @@ import * as THREE from "three";
 import { seededRandom } from "../graves.ts";
 import { hashSeed } from "../procedural.ts";
 
-const GRID = 64;        // résolution de la grille heightmap
+const GRID = 128;       // résolution de la grille heightmap
 const AMPLITUDE = 2.0;  // amplitude max en mètres
 const BASE_FREQ = 0.12; // fréquence de base (doux, pas montagne)
 
