@@ -51,8 +51,19 @@ export function setupHud(
     visitorCount.textContent = n > 0 ? `👥 ${n} visiteur${n > 1 ? "s" : ""}` : "";
   });
 
-  cemetery.onLockChange((locked) => {
-    lockPrompt.classList.toggle("hidden", locked);
+  if (import.meta.env.DEV) {
+    const hint = document.getElementById("controls-hint") as HTMLDivElement;
+    const defaultHint = hint.innerHTML;
+    cemetery.onFreeflightChange((active) => {
+      hint.innerHTML = active
+        ? "<strong>ZQSD / WASD</strong> · <strong>Souris</strong> · <strong>Espace</strong> monter · <strong>C</strong> descendre · <strong>Maj</strong> accélérer · <strong>F2</strong> quitter le freeflight · <strong>Tab</strong> libérer la souris"
+        : defaultHint;
+    });
+  }
+
+  cemetery.onLockChange((locked, silent) => {
+    // En DEV, Tab déverrouille silencieusement sans afficher le lockPrompt.
+    if (!silent) lockPrompt.classList.toggle("hidden", locked);
     if (!locked) {
       gravePanel.classList.add("hidden");
       portalPrompt.classList.add("hidden");

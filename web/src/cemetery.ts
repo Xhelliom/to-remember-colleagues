@@ -63,6 +63,9 @@ export class Cemetery {
   private timeSetting: TimeSetting = "auto";
   private seasonSetting: SeasonSetting = "auto";
   private running = false;
+  // DEV : prochain unlock ne montre pas le lockPrompt (Tab silencieux).
+  private silentNextUnlock = false;
+  private freeflightCb: ((active: boolean) => void) | null = null;
 
   private focusCb: (c: Colleague | null) => void = () => {};
   private focused: Colleague | null = null;
@@ -118,8 +121,18 @@ export class Cemetery {
     this.focusCb = cb;
   }
 
-  onLockChange(cb: (locked: boolean) => void) {
-    this.controls.onLockChange(cb);
+  /** Notifié quand le mode freeflight change (DEV uniquement). */
+  onFreeflightChange(cb: (active: boolean) => void) {
+    this.freeflightCb = cb;
+  }
+
+  onLockChange(cb: (locked: boolean, silent?: boolean) => void) {
+    this.controls.pointer.addEventListener("lock",   () => cb(true));
+    this.controls.pointer.addEventListener("unlock", () => {
+      const silent = this.silentNextUnlock;
+      this.silentNextUnlock = false;
+      cb(false, silent);
+    });
   }
 
   /** Cimetière le plus proche (où l'on se tient) ou null si l'on est sur la route. */
@@ -457,6 +470,25 @@ export class Cemetery {
   private onActionKey = (e: KeyboardEvent) => {
     if (e.type !== "keydown" || !this.controls.isLocked) return;
     if (e.code === "KeyF") this.emote("wave"); // emote « saluer » synchronisée (#4)
+    if (import.meta.env.DEV) {
+      if (e.code === "F2") {
+        // Toggle freeflight : caméra libre sans contraintes de sol ni de bounds.
+        this.controls.toggleFreeflight();
+        this.freeflightCb?.(this.controls.isFreeflightMode);
+        e.preventDefault();
+      }
+      if (e.code === "Tab") {
+        // Déverrouille la souris sans afficher le lockPrompt ; clic canvas re-lock.
+        e.preventDefault();
+        this.silentNextUnlock = true;
+        this.controls.unlock();
+        const relock = () => {
+          if (!this.controls.isLocked) this.controls.lock();
+          this.renderer.domElement.removeEventListener("click", relock);
+        };
+        this.renderer.domElement.addEventListener("click", relock);
+      }
+    }
   };
 }
 
