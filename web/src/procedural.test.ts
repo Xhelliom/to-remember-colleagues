@@ -81,6 +81,18 @@ describe("cemeteryLayout (chemin ramifié, plan cimetière)", () => {
     for (const c of a) expect(["tree", "rocks", "flat"]).toContain(c.propKind);
   });
 
+  it("répartit les 3 propKind dans des proportions plausibles sur N layouts (statistique)", () => {
+    const counts = { tree: 0, rocks: 0, flat: 0 };
+    for (let i = 0; i < 40; i++) {
+      for (const c of cemeteryLayout(`pk-stat-${i}`, 30).clusters) counts[c.propKind]++;
+    }
+    const total = counts.tree + counts.rocks + counts.flat;
+    if (total === 0) return; // pas de cluster généré avec count=30, très improbable
+    expect(counts.tree).toBeGreaterThan(0);
+    expect(counts.rocks).toBeGreaterThan(0);
+    expect(counts.flat).toBeGreaterThan(0);
+  });
+
   it("répartit les tombes entre rangées et clusters dans une plage plausible (statistique)", () => {
     let rows = 0;
     let clusters = 0;

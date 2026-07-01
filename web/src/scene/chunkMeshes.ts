@@ -10,12 +10,14 @@ import { GrassField, shouldHaveGrass } from "./grassField.ts";
 import { TerrainChunk } from "./terrain.ts";
 import { VegetationInstances } from "./vegetation.ts";
 import { buildChunkFence, chunkReach, disposeFence } from "./fence.ts";
+import { ClusterBiomes } from "./clusterBiome.ts";
 
 export type ChunkMeshes = {
   terrain: TerrainChunk;
   grass: GrassField | null;
   veg: VegetationInstances | null;
   fence: THREE.Group;
+  biomes: ClusterBiomes | null;
 };
 
 /** Construit les maillages (terrain, herbe, végétation, clôture) d'une tranche. */
@@ -37,11 +39,12 @@ export async function buildChunkMeshes(
   const mat = buildGroundMaterial(companyId, karma, ambiance.seasonKey, reach);
   const terrain = new TerrainChunk(companyId, frame, chunkWidth, layout.plotDepth, range.start, range.end, mat);
 
-  const [grass, veg] = await Promise.all([
+  const [grass, veg, biomes] = await Promise.all([
     shouldHaveGrass(karma, ambiance.seasonKey)
       ? GrassField.create(companyId, karma, frame, chunkWidth, layout.plotDepth, range.start, range.end, terrain)
       : Promise.resolve(null),
     VegetationInstances.create(companyId, frame, chunkWidth, layout.plotDepth, range.start, range.end, clustersInChunk, terrain),
+    ClusterBiomes.create(companyId, frame, terrain, clustersInChunk),
   ]);
 
   const fence = buildChunkFence(
@@ -50,7 +53,7 @@ export async function buildChunkMeshes(
     clustersInChunk, ambiance.scary, terrain,
   );
 
-  return { terrain, grass, veg, fence };
+  return { terrain, grass, veg, fence, biomes };
 }
 
 /** Libère toutes les géométries/matériaux d'une tranche. */
@@ -58,5 +61,6 @@ export function disposeChunkMeshes(chunk: ChunkMeshes) {
   chunk.terrain.dispose();
   chunk.grass?.dispose();
   chunk.veg?.dispose();
+  chunk.biomes?.dispose();
   disposeFence(chunk.fence);
 }

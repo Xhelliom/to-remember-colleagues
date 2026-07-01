@@ -161,6 +161,7 @@ export class WorldStreamer {
     this.groups.groundPlanesGroup.add(chunk.terrain.mesh);
     if (chunk.grass) this.groups.grassGroup.add(chunk.grass.mesh);
     if (chunk.veg) for (const m of chunk.veg.meshes) this.groups.vegetationGroup.add(m);
+    if (chunk.biomes) this.groups.vegetationGroup.add(chunk.biomes.group);
     this.groups.worldGroup.add(chunk.fence);
     this.loadedChunks.set(`${companyId}:${index}`, chunk);
   }
@@ -169,6 +170,7 @@ export class WorldStreamer {
     this.groups.groundPlanesGroup.remove(chunk.terrain.mesh);
     if (chunk.grass) this.groups.grassGroup.remove(chunk.grass.mesh);
     if (chunk.veg) for (const m of chunk.veg.meshes) this.groups.vegetationGroup.remove(m);
+    if (chunk.biomes) this.groups.vegetationGroup.remove(chunk.biomes.group);
     this.groups.worldGroup.remove(chunk.fence);
   }
 

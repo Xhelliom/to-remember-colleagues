@@ -82,6 +82,7 @@ export class GrassField {
     zStart: number,
     zEnd: number,
     terrain?: TerrainChunk,
+    exclude?: { x: number; z: number; r: number }, // disque monde sans herbe (clairière en terre)
   ): Promise<GrassField | null> {
     let source: THREE.Group;
     try {
@@ -116,6 +117,7 @@ export class GrassField {
     const rand = seededRandom(hashSeed(companyId + `:grass:${zStart}`));
     const center = toWorld(frame, 0, (zStart + zEnd) / 2);
     const dummy = new THREE.Object3D();
+    const r2 = exclude ? exclude.r * exclude.r : 0;
     for (let i = 0; i < bladeCount; i++) {
       const lx = (rand() * 2 - 1) * halfWidth;
       const lz = zLo + rand() * (zHi - zLo);
@@ -123,7 +125,9 @@ export class GrassField {
       dummy.position.set(wx, terrain ? terrain.getHeightAt(wx, wz) : 0, wz);
       dummy.rotation.y = rand() * Math.PI * 2;
       const sw = 0.8 + rand() * 1.2;
-      dummy.scale.set(sw, 1.0 + rand() * 2.5, sw);
+      // Pas d'herbe sur le disque de terre de la clairière (brin masqué, échelle 0).
+      const inDisk = exclude && (wx - exclude.x) ** 2 + (wz - exclude.z) ** 2 < r2;
+      dummy.scale.set(sw, inDisk ? 0 : 1.0 + rand() * 2.5, sw);
       dummy.updateMatrix();
       mesh.setMatrixAt(i, dummy.matrix);
     }

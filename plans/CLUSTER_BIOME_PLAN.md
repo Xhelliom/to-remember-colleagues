@@ -162,9 +162,21 @@ await expect(page).toHaveScreenshot("cluster-biome.png", { maxDiffPixelRatio: 0.
 ## État
 
 ```
-Étape 0  — Scène de test isolée          [ ] à faire
-Étape 4.1 — propType dans ClusterInfo    [ ] à faire
-Étape 4.2 — scene/clusterBiome.ts        [ ] à faire
-Étape 4.3 — Branchement cemetery.ts      [ ] à faire
-Étape 4.4 — E2E visual test              [ ] à faire
+Étape 0  — Scène de test isolée          [x] ?testCluster dans main.ts, runClusterTest
+Étape 4.1 — propType dans ClusterInfo    [x] propKind déjà dans procedural.ts + tests
+Étape 4.2 — scene/clusterBiome.ts        [x] ClusterBiomes + buildClusterBiome (4 layers)
+Étape 4.3 — Branchement cemetery.ts      [x] dans chunkMeshes.ts + worldStreamer.ts
+Étape 4.4 — E2E visual test              [x] e2e/clusterBiome.spec.ts (golden à générer)
+```
+
+## Calibration visuelle à faire
+
+Lancer `pnpm dev:web` et ouvrir `?testCluster=42` pour valider le rendu :
+- `VAULT_TREE_TILT = 0.12` (positif ou négatif selon rendu)
+- `VAULT_TREE_RADIUS`, `BUSH_RADIUS`, nombre d'arbres/buissons
+- Comparer à `images/cluster-cocoon-concept.png`
+
+Après validation visuelle, générer le golden E2E :
+```bash
+pnpm e2e --update-snapshots --grep "biome"
 ```
