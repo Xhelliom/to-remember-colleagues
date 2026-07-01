@@ -7,6 +7,8 @@ const RUN_SPEED = 8.0;
 const ACCELERATION = 8;
 const DAMPING_RATE = 12;
 const BOUND_MARGIN = 1.2;
+const FREEFLIGHT_SPEED_MULT = 4;      // multiplicateur XZ en mode freeflight (DEV)
+const FREEFLIGHT_VERT_SPEED = WALK_SPEED * 6; // vitesse verticale fixe (Espace/C)
 
 type MoveState = { forward: boolean; backward: boolean; left: boolean; right: boolean; run: boolean };
 
@@ -44,6 +46,10 @@ export class FirstPersonControls {
   private bound = 20;
   // Bornes rectangulaires (route du hub) ; null → bornes carrées ±bound (parcelle).
   private boundsRect: { minX: number; maxX: number; minZ: number; maxZ: number } | null = null;
+  // DEV uniquement — caméra libre sans contraintes de sol ni de bounds.
+  private freeflight = false;
+  private freeUp = false;
+  private freeDown = false;
 
   constructor(camera: THREE.Camera, dom: HTMLElement) {
     this.pointer = new PointerLockControls(camera, dom);
@@ -72,6 +78,15 @@ export class FirstPersonControls {
     this.pointer.unlock();
   }
 
+  /** Active/désactive la caméra libre (DEV uniquement). */
+  toggleFreeflight() {
+    this.freeflight = !this.freeflight;
+  }
+
+  get isFreeflightMode() {
+    return this.freeflight;
+  }
+
   setBound(plotHalf: number) {
     this.bound = plotHalf - BOUND_MARGIN;
     this.boundsRect = null;
@@ -92,7 +107,8 @@ export class FirstPersonControls {
       this.velocity.set(0, 0, 0);
       return;
     }
-    const speed = this.move.run ? RUN_SPEED : WALK_SPEED;
+    const isFree = import.meta.env.DEV && this.freeflight;
+    const speed = (this.move.run ? RUN_SPEED : WALK_SPEED) * (isFree ? FREEFLIGHT_SPEED_MULT : 1);
     const damping = Math.exp(-DAMPING_RATE * dt);
     this.velocity.x *= damping;
     this.velocity.z *= damping;
@@ -108,15 +124,20 @@ export class FirstPersonControls {
     this.pointer.moveForward(-this.velocity.z * dt);
 
     const p = this.object.position;
-    const r = this.boundsRect;
-    if (r) {
-      p.x = THREE.MathUtils.clamp(p.x, r.minX, r.maxX);
-      p.z = THREE.MathUtils.clamp(p.z, r.minZ, r.maxZ);
+    if (isFree) {
+      const dy = (Number(this.freeUp) - Number(this.freeDown)) * FREEFLIGHT_VERT_SPEED * dt;
+      p.y = Math.max(0.1, p.y + dy);
     } else {
-      p.x = THREE.MathUtils.clamp(p.x, -this.bound, this.bound);
-      p.z = THREE.MathUtils.clamp(p.z, -this.bound, this.bound);
+      const r = this.boundsRect;
+      if (r) {
+        p.x = THREE.MathUtils.clamp(p.x, r.minX, r.maxX);
+        p.z = THREE.MathUtils.clamp(p.z, r.minZ, r.maxZ);
+      } else {
+        p.x = THREE.MathUtils.clamp(p.x, -this.bound, this.bound);
+        p.z = THREE.MathUtils.clamp(p.z, -this.bound, this.bound);
+      }
+      p.y = EYE_HEIGHT;
     }
-    p.y = EYE_HEIGHT;
   }
 
   dispose() {
@@ -127,5 +148,9 @@ export class FirstPersonControls {
   private onKey = (e: KeyboardEvent) => {
     const action = keyToMove(e.code);
     if (action) this.move[action] = e.type === "keydown";
+    if (import.meta.env.DEV) {
+      if (e.code === "Space") this.freeUp = e.type === "keydown";
+      if (e.code === "KeyC") this.freeDown = e.type === "keydown";
+    }
   };
 }

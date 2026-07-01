@@ -1,7 +1,7 @@
 import "./social.css";
 import type { Cemetery } from "../cemetery.ts";
 import { addOffering, closeCompany, createColleague, getMyVote, maintainColleague, voteColleague } from "../api.ts";
-import type { Colleague, OfferingCounts } from "../types.ts";
+import type { Colleague, Company, OfferingCounts } from "../types.ts";
 import type { SeasonSetting, TimeSetting } from "../ambiance.ts";
 import { openDialog } from "./dialog.ts";
 import { openGuestbook } from "./guestbook.ts";
@@ -40,6 +40,7 @@ const anonNotice = document.getElementById("anon-notice") as HTMLDivElement;
 let currentCompanyId: string | null = null;
 let focusedColleague: Colleague | null = null;
 let myVote: -1 | 0 | 1 = 0;
+let worldTitle = "La route des cimetières";
 
 const KARMA_MAX = 50;
 
@@ -133,6 +134,12 @@ function updateKarma(karma: number) {
   karmaGauge.classList.remove("hidden");
 }
 
+/** Boutons réservés au cimetière (cachés sur la route entre les cimetières). */
+function setCemeteryButtons(visible: boolean, closed = false) {
+  addGraveBtn.classList.toggle("hidden", !visible || closed);
+  closeCompanyBtn.classList.toggle("hidden", !visible || closed);
+}
+
 function setupCemeteryListeners(cemetery: Cemetery) {
   cemetery.onFocusChange((colleague) => {
     focusedColleague = colleague;
@@ -140,21 +147,37 @@ function setupCemeteryListeners(cemetery: Cemetery) {
     if (colleague) void loadMyVote(colleague);
   });
 
-  cemetery.onPortalChange((portal) => {
-    if (!portal) {
-      portalPrompt.classList.add("hidden");
-      return;
+  // Mode monde : le cimetière le plus proche pilote le titre, le karma et les boutons.
+  cemetery.onNearestCemetery((company: Company | null) => {
+    currentCompanyId = company?.id ?? null;
+    nameEl.textContent = company ? company.name : worldTitle;
+    if (company) {
+      updateKarma(company.karma);
+      setCemeteryButtons(true, company.status === "Fermé");
+    } else {
+      karmaGauge.classList.add("hidden");
+      setCemeteryButtons(false);
     }
-    portalPrompt.textContent = `Appuyez sur E pour entrer · ${portal.company.name}`;
-    portalPrompt.classList.remove("hidden");
+    anonNotice.classList.add("hidden"); // pas d'info anonymisation disponible depuis Company
   });
 
   cemetery.onVisitorCount((n) => {
     visitorCount.textContent = n > 0 ? `👥 ${n} visiteur${n > 1 ? "s" : ""}` : "";
   });
 
-  cemetery.onLockChange((locked) => {
-    lockPrompt.classList.toggle("hidden", locked);
+  if (import.meta.env.DEV) {
+    const hint = document.getElementById("controls-hint") as HTMLDivElement;
+    const defaultHint = hint.innerHTML;
+    cemetery.onFreeflightChange((active) => {
+      hint.innerHTML = active
+        ? "<strong>ZQSD / WASD</strong> · <strong>Souris</strong> · <strong>Espace</strong> monter · <strong>C</strong> descendre · <strong>Maj</strong> accélérer · <strong>F2</strong> quitter le freeflight · <strong>Tab</strong> libérer la souris"
+        : defaultHint;
+    });
+  }
+
+  cemetery.onLockChange((locked, silent) => {
+    // En DEV, Tab déverrouille silencieusement sans afficher le lockPrompt.
+    if (!silent) lockPrompt.classList.toggle("hidden", locked);
     if (!locked) {
       gravePanel.classList.add("hidden");
       portalPrompt.classList.add("hidden");
@@ -272,7 +295,7 @@ function setupGraveActions(cemetery: Cemetery, handlers: { onColleagueAdded: () 
             quote: values.quote,
             departedOn: values.departedOn || undefined,
           });
-          cemetery.addColleague(colleague);
+          cemetery.addColleague(currentCompanyId!, colleague);
           handlers.onColleagueAdded();
         },
       );
@@ -280,11 +303,9 @@ function setupGraveActions(cemetery: Cemetery, handlers: { onColleagueAdded: () 
   });
 }
 
-function setupNavigationButtons(cemetery: Cemetery, handlers: { onBack: () => void; onBackToRoad: () => void }) {
-  backRoadBtn.addEventListener("click", () => {
-    cemetery.unlock();
-    handlers.onBackToRoad();
-  });
+function setupNavigationButtons(cemetery: Cemetery, handlers: { onBack: () => void }) {
+  // backRoadBtn caché en mode monde : on est toujours sur la route.
+  backRoadBtn.classList.add("hidden");
 
   backMenuBtn.addEventListener("click", () => {
     cemetery.unlock();
@@ -316,7 +337,7 @@ function setupNavigationButtons(cemetery: Cemetery, handlers: { onBack: () => vo
 
 export function setupHud(
   cemetery: Cemetery,
-  handlers: { onBack: () => void; onBackToRoad: () => void; onColleagueAdded: () => void },
+  handlers: { onBack: () => void; onColleagueAdded: () => void },
 ) {
   setupCemeteryListeners(cemetery);
   setupAmbianceControls(cemetery);
@@ -340,31 +361,16 @@ function showGrave(colleague: Colleague | null) {
   gravePanel.classList.remove("hidden");
 }
 
-/** Boutons réservés au cimetière (sans objet dans le hub). */
-function setCemeteryButtons(visible: boolean, closed = false) {
-  addGraveBtn.classList.toggle("hidden", !visible || closed);
-  closeCompanyBtn.classList.toggle("hidden", !visible || closed);
-  backRoadBtn.classList.toggle("hidden", !visible);
-}
-
-export function showHud(companyName: string, companyId: string, karma: number, closed = false, anonymized = false) {
-  currentCompanyId = companyId;
-  nameEl.textContent = companyName;
-  lockPromptText.textContent = "Cliquez pour entrer dans le cimetière";
-  setCemeteryButtons(true, closed);
-  portalPrompt.classList.add("hidden");
-  updateKarma(karma);
-  anonNotice.classList.toggle("hidden", !anonymized);
-  hudEl.classList.remove("hidden");
-}
-
-/** HUD du hub : pas de tombe à gérer, on parcourt la route (issue #5). */
-export function showHubHud(cemeteryCount: number) {
+/** HUD du monde continu : on parcourt l'allée, les cimetières se chargent à vue (#5).
+ *  Le bouton d'ajout et le titre suivent le cimetière où l'on se tient. */
+export function showWorldHud(cemeteryCount: number) {
   currentCompanyId = null;
-  nameEl.textContent = `La route des cimetières · ${cemeteryCount} entrée${cemeteryCount > 1 ? "s" : ""}`;
-  lockPromptText.textContent = "Cliquez pour parcourir la route";
+  worldTitle = `La route des cimetières · ${cemeteryCount} entrée${cemeteryCount > 1 ? "s" : ""}`;
+  nameEl.textContent = worldTitle;
+  lockPromptText.textContent = "Cliquez pour parcourir le monde";
   setCemeteryButtons(false);
   karmaGauge.classList.add("hidden");
+  portalPrompt.classList.add("hidden");
   hudEl.classList.remove("hidden");
 }
 

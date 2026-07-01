@@ -1,14 +1,15 @@
 import { getColleagues, getCompanies, getCurrentUser, getColleagueById } from "./api.ts";
 import { Cemetery } from "./cemetery.ts";
-import type { Company } from "./types.ts";
 import { hideAuth, setupAuth, showAuth } from "./ui/auth.ts";
 import { hideMenu, refreshMenu, setMenuUser, setupMenu, showMenu } from "./ui/menu.ts";
-import { hideHud, setupHud, showHubHud, showHud } from "./ui/hud.ts";
+import { hideHud, setupHud, showWorldHud } from "./ui/hud.ts";
 
 const loader = document.getElementById("loader") as HTMLDivElement;
 const canvas = document.getElementById("scene") as HTMLCanvasElement;
 
 const cemetery = new Cemetery(canvas);
+// Chargement « à vue » des tombes d'un cimetière à l'approche (issue #5).
+cemetery.setColleagueLoader((id) => getColleagues(id));
 
 function hideLoader() {
   loader.classList.add("hidden");
@@ -17,6 +18,7 @@ function hideLoader() {
 async function goToMenu() {
   cemetery.setActive(false);
   cemetery.leavePresence();
+  cemetery.clearWorld();
   hideAuth();
   hideHud();
   await refreshMenu();
@@ -31,39 +33,25 @@ function goToAuth() {
   showAuth();
 }
 
-async function enterCemetery(company: Company) {
-  hideMenu();
-  // Chargement à la demande des tombes de ce cimetière (issue #5).
-  const detail = await getColleagues(company.id);
-  cemetery.setCemetery(detail);
-  showHud(company.name, company.id, detail.karma, company.status === "Fermé", detail.anonymized);
-  cemetery.setActive(true);
-  // L'utilisateur clique sur l'invite pour capturer la souris et commencer à marcher.
-}
-
 /** Navigation directe vers une tombe via lien de partage (issue #18). */
 async function enterCemeteryByGrave(graveId: string) {
-  hideMenu();
   try {
-    const { company, karma } = await getColleagueById(graveId);
-    const detail = await getColleagues(company.id);
-    cemetery.setCemetery(detail);
-    showHud(company.name, company.id, karma, company.closed, detail.anonymized);
-    cemetery.setActive(true);
-    cemetery.highlightGrave(graveId);
+    const { company } = await getColleagueById(graveId);
+    await goToWorld(company.id);
     history.replaceState(null, "", window.location.pathname);
   } catch {
     await goToMenu();
   }
 }
 
-// Hub : la route commune d'où l'on rejoint les entrées des cimetières (issue #5).
-async function goToHub() {
+// Monde continu : la route sinueuse bordée des cimetières (issue #5).
+// `spawnCompanyId` → spawn directement à l'entrée d'un cimetière (voyage rapide).
+async function goToWorld(spawnCompanyId?: string) {
   hideMenu();
   hideAuth();
   const companies = await getCompanies();
-  cemetery.enterHub(companies);
-  showHubHud(companies.length);
+  cemetery.enterWorld(companies, spawnCompanyId);
+  showWorldHud(companies.length);
   cemetery.setActive(true);
 }
 
@@ -83,25 +71,17 @@ setupAuth(async () => {
 
 setupMenu({
   onEnter: (company) => {
-    void enterCemetery(company); // voyage rapide directement dans un cimetière
+    void goToWorld(company.id); // voyage rapide : spawn à l'entrée de ce cimetière
   },
   onExplore: () => {
-    void goToHub();
+    void goToWorld();
   },
   onSignOut: () => goToAuth(),
-});
-
-// Entrée d'un portail depuis le hub → chargement de ce cimetière.
-cemetery.onEnterPortal((company) => {
-  void enterCemetery(company);
 });
 
 setupHud(cemetery, {
   onBack: () => {
     void goToMenu();
-  },
-  onBackToRoad: () => {
-    void goToHub();
   },
   onColleagueAdded: () => {
     /* la tombe est déjà ajoutée à la scène ; rien d'autre à faire ici */
