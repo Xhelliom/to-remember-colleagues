@@ -58,6 +58,8 @@ function windMat(src: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
 export class GrassField {
   readonly mesh: THREE.InstancedMesh;
   readonly center: { x: number; z: number };
+  /** Demi-longueur de la tranche (Z) : distance au centre − halfLength ≈ distance au chunk. */
+  readonly halfLength: number;
   readonly bladeCount: number;
   private readonly mat: THREE.MeshStandardMaterial;
 
@@ -66,11 +68,13 @@ export class GrassField {
     mat: THREE.MeshStandardMaterial,
     center: { x: number; z: number },
     bladeCount: number,
+    halfLength: number,
   ) {
     this.mesh = mesh;
     this.mat = mat;
     this.center = center;
     this.bladeCount = bladeCount;
+    this.halfLength = halfLength;
   }
 
   static async create(
@@ -130,7 +134,7 @@ export class GrassField {
     mesh.instanceMatrix.needsUpdate = true;
     mesh.computeBoundingSphere();
 
-    return new GrassField(mesh, mat, center, bladeCount);
+    return new GrassField(mesh, mat, center, bladeCount, (zEnd - zStart) / 2);
   }
 
   update(time: number) {

@@ -66,7 +66,6 @@ const MIN_BRANCH_GAP = 2 * BRANCH_Z_SPREAD_HALF + GRAVE_SPACING;
 
 /** Place une rangée de tombes le long du bras, en s'arrêtant à `remaining`. */
 function placeRow(
-  rand: () => number,
   zBase: number,
   dirX: number,
   dirZ: number,
@@ -176,7 +175,7 @@ export function cemeteryLayout(companyId: string, count: number): CemeteryLayout
       placements.push(...placeCluster(rand, cx, cz, chunk, remaining));
       clusters.push({ x: cx, z: cz, chunk, propKind: drawPropKind(rand) });
     } else {
-      placements.push(...placeRow(rand, z, dirX, dirZ, armLength, chunk, remaining));
+      placements.push(...placeRow(z, dirX, dirZ, armLength, chunk, remaining));
     }
     branchZs.push(z);
     branchIndex++;

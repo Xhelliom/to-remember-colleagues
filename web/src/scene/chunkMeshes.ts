@@ -9,7 +9,8 @@ import { buildGroundMaterial } from "./grass.ts";
 import { GrassField, shouldHaveGrass } from "./grassField.ts";
 import { TerrainChunk } from "./terrain.ts";
 import { VegetationInstances } from "./vegetation.ts";
-import { buildChunkFence, chunkReach, disposeFence } from "./fence.ts";
+import { buildChunkFence, chunkReach } from "./fence.ts";
+import { disposeObject } from "./disposeObject.ts";
 
 export type ChunkMeshes = {
   terrain: TerrainChunk;
@@ -35,7 +36,10 @@ export async function buildChunkMeshes(
   const chunkWidth = reach * 2;
   const clustersInChunk = layout.clusters.filter((c) => c.chunk === index);
   const mat = buildGroundMaterial(companyId, karma, ambiance.seasonKey, reach);
-  const terrain = new TerrainChunk(companyId, frame, chunkWidth, layout.plotDepth, range.start, range.end, mat);
+  // chunkWidth = étendue du maillage (calée sur la clôture) ; layout.plotWidth =
+  // largeur GLOBALE du couloir, utilisée pour le fondu de bordure afin qu'il
+  // reste invariant d'un chunk à l'autre (pas de couture, cf. terrain.ts).
+  const terrain = new TerrainChunk(companyId, frame, chunkWidth, layout.plotWidth, layout.plotDepth, range.start, range.end, mat);
 
   const [grass, veg] = await Promise.all([
     shouldHaveGrass(karma, ambiance.seasonKey)
@@ -58,5 +62,5 @@ export function disposeChunkMeshes(chunk: ChunkMeshes) {
   chunk.terrain.dispose();
   chunk.grass?.dispose();
   chunk.veg?.dispose();
-  disposeFence(chunk.fence);
+  disposeObject(chunk.fence);
 }

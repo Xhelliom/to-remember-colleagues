@@ -5,7 +5,7 @@
 import * as THREE from "three";
 import type { Company } from "./types.ts";
 import type { Ambiance } from "./ambiance.ts";
-import { worldLayout, plotReach, ROAD_HALF, type Vec2, type WorldSlot } from "./worldLayout.ts";
+import { worldLayout, distanceToSlot, ROAD_HALF, type Vec2, type WorldSlot } from "./worldLayout.ts";
 import { buildEntranceArch } from "./hub.ts";
 import { makeTree } from "./scene/decor.ts";
 import { seededRandom } from "./graves.ts";
@@ -93,9 +93,9 @@ function nearRoad(x: number, z: number, centerline: Vec2[]): boolean {
 }
 
 function insidePlot(x: number, z: number, slots: WorldSlot[]): boolean {
-  // ponytail: cercle englobant le rectangle (largeur × longueur), imprécis
-  // aux coins — comme avant le chunking, suffisant pour exclure la forêt.
-  return slots.some((s) => Math.hypot(x - s.plotCenter.x, z - s.plotCenter.z) < plotReach(s) + FOREST_CLEARANCE);
+  // Emprise RÉELLE (rectangle largeur × longueur) : un cercle englobant de rayon
+  // max(w,d)/2 sur-excluait massivement la forêt autour d'un cimetière allongé.
+  return slots.some((s) => distanceToSlot(s, { x, z }) < FOREST_CLEARANCE);
 }
 
 /** Forêt comblant les intervalles entre route et parcelles (déterministe, bornée). */

@@ -22,6 +22,8 @@ const FOCUS_RADIUS = 3.2;
 const GRASS_LOD_RADIUS = 30; // en dessous : rendu complet
 const GRASS_LOD_MED = 50;    // en dessous : rendu réduit ; au-delà : zéro
 const GRASS_LOD_FAR = 400;   // instances pour les parcelles en LOD intermédiaire
+const VEG_VISIBLE_MARGIN = 1.5; // végétation visible jusqu'à +50 % du rayon de chargement d'un chunk
+const VEG_VISIBLE_RADIUS = CHUNK_LOAD_RADIUS * VEG_VISIBLE_MARGIN;
 const GROUND_PAD = 60; // débord du sol autour des bornes du monde
 const PARTICLE_HALF = 60; // demi-étendue des particules d'ambiance autour du spawn
 const PEER_SMOOTH_RATE = 10; // lissage exponentiel de l'interpolation des pairs
@@ -416,13 +418,15 @@ export class Cemetery {
       const field = chunk.grass;
       if (field) {
         field.update(t);
-        const d = Math.hypot(field.center.x - cam.x, field.center.z - cam.z);
+        // Distance à la TRANCHE (− halfLength), pas à son centre : un chunk long
+        // reste « proche » quand on se tient à son extrémité (sinon herbe à 0).
+        const d = Math.max(0, Math.hypot(field.center.x - cam.x, field.center.z - cam.z) - field.halfLength);
         field.mesh.count = d < GRASS_LOD_RADIUS ? field.bladeCount : d < GRASS_LOD_MED ? Math.min(field.bladeCount, GRASS_LOD_FAR) : 0;
       }
       const veg = chunk.veg;
       if (veg) {
-        const dv = Math.hypot(veg.center.x - cam.x, veg.center.z - cam.z);
-        const visible = dv < CHUNK_LOAD_RADIUS * 1.5;
+        const dv = Math.max(0, Math.hypot(veg.center.x - cam.x, veg.center.z - cam.z) - veg.halfLength);
+        const visible = dv < VEG_VISIBLE_RADIUS;
         for (const m of veg.meshes) m.count = visible ? (m.userData.maxCount as number) : 0;
       }
     }

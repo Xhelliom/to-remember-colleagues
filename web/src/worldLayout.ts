@@ -79,9 +79,33 @@ export function distanceToSlot(slot: WorldSlot, p: Vec2): number {
   return Math.hypot(dx, dz);
 }
 
-/** Rayon englobant (temporaire, jusqu'au chunking réel de la phase 3). */
-export function plotReach(slot: WorldSlot): number {
-  return Math.max(slot.plotWidth, slot.plotDepth) / 2;
+/** Construit un slot (entrée au bord de route, orientation, centre) pour le k-ième cimetière. */
+function makeSlot(
+  id: string,
+  k: number,
+  layouts: { plotWidth: number; plotDepth: number }[],
+  station: (i: number) => Vec2,
+): WorldSlot {
+  const s = Math.floor(k / 2) + 1;
+  const p = station(s);
+  // Normale à la tangente (différence centrale) dans le plan XZ.
+  const a = station(s - 1);
+  const b = station(s + 1);
+  const tx = b.x - a.x;
+  const tz = b.z - a.z;
+  const tlen = Math.hypot(tx, tz) || 1;
+  const nx = tz / tlen;
+  const nz = -tx / tlen;
+  const side = k % 2 === 0 ? -1 : 1; // alterne les côtés de la route
+  const { plotWidth, plotDepth } = layouts[k];
+  const off = (d: number): Vec2 => ({ x: p.x + nx * side * d, z: p.z + nz * side * d });
+  const entrance = off(ROAD_HALF + ENTRANCE_GAP);
+  // `rotY` : direction locale +Z (toWorld/toLocal) qui s'éloigne de la route —
+  // même sens que le décalage, sinon le chemin repart à travers la route.
+  // L'arche (qui doit FAIRE FACE à la route) compense de +π (world.ts).
+  const rotY = Math.atan2(nx * side, nz * side);
+  const plotCenter = toWorld({ entrance, rotY }, 0, plotDepth / 2);
+  return { id, entrance, plotCenter, plotWidth, plotDepth, rotY };
 }
 
 /** Construit le plan du monde à partir des cimetières (id + nombre de tombes). */
@@ -121,31 +145,7 @@ export function worldLayout(companies: { id: string; graveCount: number }[]): Wo
   let maxZ = START_Z;
 
   companies.forEach((c, k) => {
-    const s = Math.floor(k / 2) + 1;
-    const p = station(s);
-    // Normale à la tangente (différence centrale) dans le plan XZ.
-    const a = station(s - 1);
-    const b = station(s + 1);
-    const tx = b.x - a.x;
-    const tz = b.z - a.z;
-    const tlen = Math.hypot(tx, tz) || 1;
-    const nx = tz / tlen;
-    const nz = -tx / tlen;
-    const side = k % 2 === 0 ? -1 : 1; // alterne les côtés de la route
-    const { plotWidth, plotDepth } = layouts[k];
-
-    const off = (d: number): Vec2 => ({ x: p.x + nx * side * d, z: p.z + nz * side * d });
-    const entrance = off(ROAD_HALF + ENTRANCE_GAP);
-    // `rotY` définit la direction locale +Z (celle de `toWorld`/`toLocal`,
-    // utilisée par les tombes, le terrain et la clôture) : elle doit s'éloigner
-    // de la route, dans le MÊME sens que le décalage ci-dessus — sinon le
-    // chemin repart à travers la route au lieu de s'en éloigner. L'arche
-    // (qui doit au contraire FAIRE FACE à la route) compense de +π (world.ts).
-    const rotY = Math.atan2(nx * side, nz * side);
-    // Milieu du chemin — même convention que `toWorld`.
-    const plotCenter = toWorld({ entrance, rotY }, 0, plotDepth / 2);
-
-    const slot: WorldSlot = { id: c.id, entrance, plotCenter, plotWidth, plotDepth, rotY };
+    const slot = makeSlot(c.id, k, layouts, station);
     slots.push(slot);
     for (const corner of slotCorners(slot)) {
       minX = Math.min(minX, corner.x);

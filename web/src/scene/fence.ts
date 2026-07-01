@@ -110,12 +110,3 @@ export function buildChunkFence(
   return group;
 }
 
-/** Libère géométries et matériau d'un groupe de clôture. */
-export function disposeFence(group: THREE.Group) {
-  group.traverse((obj) => {
-    const mesh = obj as THREE.Mesh;
-    if (mesh.geometry) mesh.geometry.dispose();
-  });
-  const first = group.children[0] as THREE.Mesh | undefined;
-  (first?.material as THREE.Material | undefined)?.dispose();
-}

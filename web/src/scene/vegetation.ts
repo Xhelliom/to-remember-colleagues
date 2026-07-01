@@ -15,6 +15,13 @@ const CLUSTER_TREE_SCALE = 3.5; // méga-arbre, échelle disproportionnée (mini
 const CLUSTER_ROCK_STACK = 4; // empilement de rochers = fausse falaise
 const CLUSTER_ROCK_BASE_SCALE = 1.4;
 const CLUSTER_ROCK_SCALE_DECAY = 0.18; // rétrécit à chaque rocher empilé
+const CLUSTER_ROCK_ROTATION_STEP = 1.3; // rotation (rad) entre rochers empilés
+const CLUSTER_ROCK_STACK_FACTOR = 0.9;  // fraction de l'échelle empilée en hauteur
+const TREE_SCALE_MIN = 0.8;             // échelle mini et amplitude des arbres d'ambiance
+const TREE_SCALE_RANGE = 0.6;
+const ROCK_SCALE_MIN = 0.2;             // échelle mini et amplitude des rochers d'ambiance
+const ROCK_SCALE_RANGE = 0.6;
+const TREE_EDGE_BAND = 2;               // arbres collés aux murs latéraux (allée centrale dégagée)
 
 function treePath(companyId: string): string {
   return hashSeed(companyId + ":trees") % 2 === 0
@@ -49,11 +56,16 @@ function buildPlacementMatrices(
   frame: Frame, halfWidth: number, zLo: number, zHi: number,
   terrain: TerrainChunk | undefined,
   scaleMin: number, scaleRange: number,
+  edgeBias = false,
 ): THREE.Matrix4[] {
   const rand = seededRandom(hashSeed(companyId + suffix + `:${zLo}`));
   const dummy = new THREE.Object3D();
   return Array.from({ length: count }, () => {
-    const lx = (rand() * 2 - 1) * halfWidth;
+    // `edgeBias` : arbres d'ambiance près des murs latéraux (comme l'ancien
+    // anneau de bordure) pour ne pas tomber sur les rangées de tombes du centre.
+    const lx = edgeBias
+      ? (rand() < 0.5 ? -1 : 1) * (halfWidth - rand() * TREE_EDGE_BAND)
+      : (rand() * 2 - 1) * halfWidth;
     const lz = zLo + rand() * (zHi - zLo);
     const { x: wx, z: wz } = toWorld(frame, lx, lz);
     dummy.position.set(wx, terrain ? terrain.getHeightAt(wx, wz) : 0, wz);
@@ -84,11 +96,11 @@ function clusterRockMatrices(frame: Frame, cluster: ClusterInfo, terrain?: Terra
   for (let i = 0; i < CLUSTER_ROCK_STACK; i++) {
     const scale = CLUSTER_ROCK_BASE_SCALE * (1 - i * CLUSTER_ROCK_SCALE_DECAY);
     dummy.position.set(wx, y, wz);
-    dummy.rotation.y = i * 1.3;
+    dummy.rotation.y = i * CLUSTER_ROCK_ROTATION_STEP;
     dummy.scale.setScalar(scale);
     dummy.updateMatrix();
     matrices.push(dummy.matrix.clone());
-    y += scale * 0.9; // empile approximativement chaque rocher sur le précédent
+    y += scale * CLUSTER_ROCK_STACK_FACTOR; // empile approximativement chaque rocher sur le précédent
   }
   return matrices;
 }
@@ -109,10 +121,13 @@ function buildInstancedMeshes(srcs: SubMesh[], matrices: THREE.Matrix4[], count:
 export class VegetationInstances {
   readonly meshes: THREE.InstancedMesh[];
   readonly center: { x: number; z: number };
+  /** Demi-longueur de la tranche (Z), pour le LOD par distance au chunk (pas au centre). */
+  readonly halfLength: number;
 
-  private constructor(meshes: THREE.InstancedMesh[], center: { x: number; z: number }) {
+  private constructor(meshes: THREE.InstancedMesh[], center: { x: number; z: number }, halfLength: number) {
     this.meshes = meshes;
     this.center = center;
+    this.halfLength = halfLength;
   }
 
   static async create(
@@ -143,7 +158,7 @@ export class VegetationInstances {
     if (treeRes.status === "fulfilled") {
       const srcs = extractSubMeshes(treeRes.value);
       if (srcs.length) {
-        const ambient = buildPlacementMatrices(companyId, ":trees", treeCount, frame, halfWidth, zLo, zHi, terrain, 0.8, 0.6);
+        const ambient = buildPlacementMatrices(companyId, ":trees", treeCount, frame, halfWidth, zLo, zHi, terrain, TREE_SCALE_MIN, TREE_SCALE_RANGE, true);
         const props = treeProps.map((c) => clusterTreeMatrix(frame, c, terrain));
         const mats = [...ambient, ...props];
         meshes.push(...buildInstancedMeshes(srcs, mats, mats.length));
@@ -153,7 +168,7 @@ export class VegetationInstances {
     if (rockRes.status === "fulfilled") {
       const srcs = extractSubMeshes(rockRes.value);
       if (srcs.length) {
-        const ambient = buildPlacementMatrices(companyId, ":rocks", rockCount, frame, halfWidth, zLo, zHi, terrain, 0.2, 0.6);
+        const ambient = buildPlacementMatrices(companyId, ":rocks", rockCount, frame, halfWidth, zLo, zHi, terrain, ROCK_SCALE_MIN, ROCK_SCALE_RANGE);
         const props = rockProps.flatMap((c) => clusterRockMatrices(frame, c, terrain));
         const mats = [...ambient, ...props];
         meshes.push(...buildInstancedMeshes(srcs, mats, mats.length));
@@ -161,7 +176,7 @@ export class VegetationInstances {
     }
 
     if (!meshes.length) return null;
-    return new VegetationInstances(meshes, toWorld(frame, 0, (zStart + zEnd) / 2));
+    return new VegetationInstances(meshes, toWorld(frame, 0, (zStart + zEnd) / 2), (zEnd - zStart) / 2);
   }
 
   dispose() {
