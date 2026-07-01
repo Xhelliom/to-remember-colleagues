@@ -24,8 +24,10 @@ const MAX_PIXEL_RATIO = 2;
 const MAX_DELTA = 0.05;
 const FOCUS_RADIUS = 3.2;
 const LOAD_RADIUS = 24; // marge d'approche au-delà de la parcelle pour charger « à vue »
-const GRASS_LOD_RADIUS = 30; // en dessous : rendu complet ; au-delà : réduit
-const GRASS_LOD_FAR = 1_000; // instances pour les parcelles éloignées
+const GRASS_LOD_RADIUS = 30; // en dessous : rendu complet
+const GRASS_LOD_MED = 50;    // en dessous : rendu réduit ; au-delà : zéro
+const GRASS_LOD_FAR = 400;   // instances pour les parcelles en LOD intermédiaire
+const MAX_CONCURRENT_LOADS = 2; // cimetières chargés en parallèle max
 const NEAR_MARGIN = 3; // tolérance pour se considérer « à » un cimetière (HUD, ajout)
 const GROUND_PAD = 60; // débord du sol autour des bornes du monde
 const PARTICLE_HALF = 60; // demi-étendue des particules d'ambiance autour du spawn
@@ -61,6 +63,7 @@ export class Cemetery {
   private readonly terrains = new Map<string, TerrainChunk>();
   private readonly vegetations: VegetationInstances[] = [];
   private readonly vegetationGroup = new THREE.Group();
+  private loadingCount = 0; // chargements actifs (throttle)
   private readonly worldGroup = new THREE.Group();
   private readonly peersGroup = new THREE.Group();
 
@@ -276,7 +279,7 @@ export class Cemetery {
     let best = Infinity;
     for (const slot of this.slots) {
       const d = Math.hypot(slot.plotCenter.x - cam.x, slot.plotCenter.z - cam.z);
-      if (d < slot.plotHalf + LOAD_RADIUS && !this.requested.has(slot.id)) {
+      if (d < slot.plotHalf + LOAD_RADIUS && !this.requested.has(slot.id) && this.loadingCount < MAX_CONCURRENT_LOADS) {
         void this.loadCemetery(slot);
       }
       if (d < slot.plotHalf + NEAR_MARGIN && d < best) {
@@ -292,6 +295,7 @@ export class Cemetery {
 
   private async loadCemetery(slot: WorldSlotWithCompany) {
     this.requested.add(slot.id); // une seule tentative par session (anti-spam au survol)
+    this.loadingCount++;
     try {
       // Le terrain est construit en premier : herbe et tombes s'y calent.
       const mat = buildGroundMaterial(slot.id, slot.company.karma, this.ambiance.seasonKey, slot.plotHalf);
@@ -324,6 +328,8 @@ export class Cemetery {
       }
     } catch {
       // ponytail: pas de backoff ; le cimetière reste vide jusqu'au prochain enterWorld.
+    } finally {
+      this.loadingCount--;
     }
   }
 
@@ -480,7 +486,7 @@ export class Cemetery {
     for (const field of this.grassFields) {
       field.update(t);
       const d = Math.hypot(field.center.x - cam.x, field.center.z - cam.z);
-      field.mesh.count = d < GRASS_LOD_RADIUS ? MAX_BLADES : GRASS_LOD_FAR;
+      field.mesh.count = d < GRASS_LOD_RADIUS ? MAX_BLADES : d < GRASS_LOD_MED ? GRASS_LOD_FAR : 0;
     }
     for (const v of this.vegetations) {
       const dv = Math.hypot(v.center.x - cam.x, v.center.z - cam.z);
