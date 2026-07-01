@@ -29,15 +29,19 @@ export async function buildChunkMeshes(
   ambiance: Ambiance,
 ): Promise<ChunkMeshes> {
   const reach = chunkReach(layout.placements, index, layout.plotWidth / 2);
+  // Le sol (terrain/herbe/végétation) est calé sur la même portée que la
+  // clôture (2 × reach), pas sur la largeur globale du couloir — sinon le sol
+  // dépasse le mur d'enceinte.
+  const chunkWidth = reach * 2;
   const clustersInChunk = layout.clusters.filter((c) => c.chunk === index);
   const mat = buildGroundMaterial(companyId, karma, ambiance.seasonKey, reach);
-  const terrain = new TerrainChunk(companyId, frame, layout.plotWidth, layout.plotDepth, range.start, range.end, mat);
+  const terrain = new TerrainChunk(companyId, frame, chunkWidth, layout.plotDepth, range.start, range.end, mat);
 
   const [grass, veg] = await Promise.all([
     shouldHaveGrass(karma, ambiance.seasonKey)
-      ? GrassField.create(companyId, karma, frame, layout.plotWidth, layout.plotDepth, range.start, range.end, terrain)
+      ? GrassField.create(companyId, karma, frame, chunkWidth, layout.plotDepth, range.start, range.end, terrain)
       : Promise.resolve(null),
-    VegetationInstances.create(companyId, frame, layout.plotWidth, layout.plotDepth, range.start, range.end, clustersInChunk, terrain),
+    VegetationInstances.create(companyId, frame, chunkWidth, layout.plotDepth, range.start, range.end, clustersInChunk, terrain),
   ]);
 
   const fence = buildChunkFence(

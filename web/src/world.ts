@@ -137,7 +137,9 @@ export function buildWorld(companies: Company[], ambiance: Ambiance): World {
   const slots: WorldSlotWithCompany[] = [];
   for (const slot of layout.slots) {
     const company = byId.get(slot.id)!;
-    const arch = buildEntranceArch(company, slot.rotY);
+    // +π : `rotY` donne la direction du chemin (s'éloigne de la route),
+    // l'arche doit au contraire faire face à la route pour accueillir le visiteur.
+    const arch = buildEntranceArch(company, slot.rotY + Math.PI);
     arch.position.set(slot.entrance.x, 0, slot.entrance.z);
     group.add(arch);
     // Clôture : construite par tranche (chunk), au tracé réel du chemin — voir

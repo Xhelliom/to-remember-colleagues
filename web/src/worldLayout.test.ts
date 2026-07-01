@@ -32,7 +32,15 @@ describe("worldLayout (monde continu, évolution #5)", () => {
     expect(worldLayout(companies(12)).bounds.minZ).toBeLessThan(worldLayout(companies(3)).bounds.minZ);
   });
 
-  it("les emprises (le long de la route) de deux cimetières consécutifs ne se chevauchent jamais, quelle que soit leur taille (2.2)", () => {
+  it("deux cimetières consécutifs se font face à la même station (pas de grand vide en quinconce)", () => {
+    const { slots } = worldLayout(companies(2));
+    const [a, b] = slots;
+    // Même station : distance entrée-à-entrée petite (largeur de route),
+    // pas des dizaines de mètres comme avec une station par cimetière.
+    expect(Math.hypot(a.entrance.x - b.entrance.x, a.entrance.z - b.entrance.z)).toBeLessThan(20);
+  });
+
+  it("les emprises (le long de la route) de deux stations consécutives ne se chevauchent jamais, quelle que soit leur taille (2.2)", () => {
     const varied = [
       { id: "a", graveCount: 3 },
       { id: "b", graveCount: 600 },
@@ -41,9 +49,15 @@ describe("worldLayout (monde continu, évolution #5)", () => {
       { id: "e", graveCount: 1 },
     ];
     const { slots, centerline } = worldLayout(varied);
-    for (let k = 1; k < slots.length; k++) {
-      const gapNeeded = slots[k - 1].plotWidth / 2 + slots[k].plotWidth / 2;
-      const gapActual = Math.abs(centerline[k].z - centerline[k + 1].z);
+    // Regroupe les cimetières par station (deux au plus, face à face).
+    const halfWidthByStation = new Map<number, number>();
+    slots.forEach((slot, k) => {
+      const s = Math.floor(k / 2) + 1;
+      halfWidthByStation.set(s, Math.max(halfWidthByStation.get(s) ?? 0, slot.plotWidth / 2));
+    });
+    for (let s = 1; s < centerline.length - 1; s++) {
+      const gapNeeded = (halfWidthByStation.get(s) ?? 0) + (halfWidthByStation.get(s + 1) ?? 0);
+      const gapActual = Math.abs(centerline[s].z - centerline[s + 1].z);
       expect(gapActual).toBeGreaterThanOrEqual(gapNeeded);
     }
   });

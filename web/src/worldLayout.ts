@@ -88,30 +88,40 @@ export function plotReach(slot: WorldSlot): number {
 export function worldLayout(companies: { id: string; graveCount: number }[]): WorldLayout {
   const n = companies.length;
   const layouts = companies.map((c) => cemeteryLayout(c.id, c.graveCount));
+  // Deux cimetières consécutifs partagent une même station, face à face de
+  // part et d'autre de la route (pas de grand vide en quinconce).
+  const pairCount = Math.ceil(n / 2);
 
-  // Demi-largeur occupée le long de la route à chaque station (0 pour le
-  // spawn et la station tampon, qui ne portent pas de cimetière).
-  const halfWidthAt = (s: number): number => (s >= 1 && s <= n ? layouts[s - 1].plotWidth / 2 : 0);
+  // Demi-largeur occupée le long de la route à la station `s` (1..pairCount) :
+  // le plus large des deux cimetières qui s'y font face (0 pour le spawn et
+  // la station tampon, qui ne portent pas de cimetière).
+  const halfWidthAt = (s: number): number => {
+    if (s < 1 || s > pairCount) return 0;
+    const leftIdx = (s - 1) * 2;
+    const rightIdx = leftIdx + 1;
+    const rightHalf = rightIdx < n ? layouts[rightIdx].plotWidth / 2 : 0;
+    return Math.max(layouts[leftIdx].plotWidth / 2, rightHalf);
+  };
 
   // Accumulation adaptative (2.2) : l'écart entre deux stations dépend des
   // demi-largeurs réelles de chaque côté, plus une marge fixe.
   const stationZ = [START_Z];
-  for (let s = 1; s <= n + 1; s++) {
+  for (let s = 1; s <= pairCount + 1; s++) {
     stationZ.push(stationZ[s - 1] - (halfWidthAt(s - 1) + halfWidthAt(s) + STATION_MARGIN));
   }
   const station = (i: number): Vec2 => ({ x: MEANDER_AMP * Math.sin(i * MEANDER_FREQ), z: stationZ[i] });
 
   const centerline: Vec2[] = [];
-  for (let i = 0; i <= n + 1; i++) centerline.push(station(i));
+  for (let i = 0; i <= pairCount + 1; i++) centerline.push(station(i));
 
   const slots: WorldSlot[] = [];
   let minX = -ROAD_HALF;
   let maxX = ROAD_HALF;
-  let minZ = stationZ[n + 1];
+  let minZ = stationZ[pairCount + 1];
   let maxZ = START_Z;
 
   companies.forEach((c, k) => {
-    const s = k + 1;
+    const s = Math.floor(k / 2) + 1;
     const p = station(s);
     // Normale à la tangente (différence centrale) dans le plan XZ.
     const a = station(s - 1);
@@ -126,11 +136,13 @@ export function worldLayout(companies: { id: string; graveCount: number }[]): Wo
 
     const off = (d: number): Vec2 => ({ x: p.x + nx * side * d, z: p.z + nz * side * d });
     const entrance = off(ROAD_HALF + ENTRANCE_GAP);
-    // L'arche et le chemin font face à la route (direction -normale*côté).
-    const rotY = Math.atan2(-nx * side, -nz * side);
-    // Milieu du chemin — MÊME convention que `toWorld` (utilisée pour les
-    // tombes, le terrain, la clôture), pas la direction de l'offset ci-dessus
-    // qui est opposée (bug corrigé : plotCenter pointait vers la route).
+    // `rotY` définit la direction locale +Z (celle de `toWorld`/`toLocal`,
+    // utilisée par les tombes, le terrain et la clôture) : elle doit s'éloigner
+    // de la route, dans le MÊME sens que le décalage ci-dessus — sinon le
+    // chemin repart à travers la route au lieu de s'en éloigner. L'arche
+    // (qui doit au contraire FAIRE FACE à la route) compense de +π (world.ts).
+    const rotY = Math.atan2(nx * side, nz * side);
+    // Milieu du chemin — même convention que `toWorld`.
     const plotCenter = toWorld({ entrance, rotY }, 0, plotDepth / 2);
 
     const slot: WorldSlot = { id: c.id, entrance, plotCenter, plotWidth, plotDepth, rotY };
