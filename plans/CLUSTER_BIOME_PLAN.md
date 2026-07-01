@@ -8,6 +8,40 @@ Référence visuelle : `images/cluster-cocoon-concept.png` (généré via gpt-im
 
 ---
 
+## Contexte d'implémentation (pour session fraîche)
+
+- `ClusterInfo` est dans `web/src/procedural.ts` — actuellement `{ x, z, chunk }`, à étendre
+- `CLUSTER_RADIUS = 3` est une constante exportée de `procedural.ts`
+- Pattern de chargement GLTF à réutiliser depuis `web/src/scene/vegetation.ts` :
+  `loadGltf` (depuis `scene/grass.ts`), `extractSubMeshes`, `buildPlacementMatrices`
+- Le dossier bush est `web/public/models/Bush/` (**B majuscule**)
+- `jacaranda_tree_1k` est nouveau — pas encore référencé dans `vegetation.ts`
+- `Frame` et `toWorld` viennent de `web/src/worldLayout.ts`
+- `seededRandom` vient de `web/src/graves.ts`, `hashSeed` de `web/src/procedural.ts`
+
+### Origine des valeurs numériques des layers (issues du brainstorm visuel)
+
+Ces valeurs ne sont pas dans le code — elles viennent de l'analyse du concept image
+`images/cluster-cocoon-concept.png` et sont à calibrer via la scène de test (étape 0) :
+
+| Valeur | Raison |
+|--------|--------|
+| `rotation.x ≈ -0.12 rad` | Inclinaison des arbres vers le centre pour créer la voûte |
+| Trees radius `CLUSTER_RADIUS + 4 m` | Suffisant pour entourer les tombes sans les masquer |
+| Bushes radius `CLUSTER_RADIUS + 1.5 m` | Juste derrière les tombes (CLUSTER_RADIUS = 3) |
+| 5–8 arbres en arc | Couverture angulaire ~270° sans trous ni surcharge |
+| 8–12 buissons | Densité visuelle suffisante pour le mur vert |
+| Scale arbres 2–3.5 | Canopée assez haute pour la voûte sans dépasser le budget GPU |
+| Scale buissons 0.8–1.3 | Hauteur ~1–2 m, entre herbe et arbre |
+
+### Caméra de la scène de test
+
+Position matching le concept image : hauteur 1.7 m (hauteur d'œil), légèrement
+surélevée et reculée à l'entrée du chemin, regardant vers le centre du cluster
+(axe +Z local). En coords locales du cluster : `(0, 1.7, -6)` → `lookAt(0, 1, 0)`.
+
+---
+
 ## Assets disponibles
 
 | Rôle | Fichier |
