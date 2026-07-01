@@ -18,6 +18,7 @@ function hideLoader() {
 async function goToMenu() {
   cemetery.setActive(false);
   cemetery.leavePresence();
+  cemetery.clearWorld();
   hideAuth();
   hideHud();
   await refreshMenu();

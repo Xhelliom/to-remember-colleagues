@@ -24,6 +24,7 @@ const MAX_PIXEL_RATIO = 2;
 const MAX_DELTA = 0.05;
 const FOCUS_RADIUS = 3.2;
 const LOAD_RADIUS = 24; // marge d'approche au-delà de la parcelle pour charger « à vue »
+const UNLOAD_RADIUS = 100; // distance depuis le centre pour décharger (hysterèse avec LOAD_RADIUS)
 const GRASS_LOD_RADIUS = 30; // en dessous : rendu complet
 const GRASS_LOD_MED = 50;    // en dessous : rendu réduit ; au-delà : zéro
 const GRASS_LOD_FAR = 400;   // instances pour les parcelles en LOD intermédiaire
@@ -59,9 +60,9 @@ export class Cemetery {
   private readonly gravesGroup = new THREE.Group();
   private readonly grassGroup = new THREE.Group();
   private readonly groundPlanesGroup = new THREE.Group();
-  private readonly grassFields: GrassField[] = [];
+  private readonly grassFields = new Map<string, GrassField>();
   private readonly terrains = new Map<string, TerrainChunk>();
-  private readonly vegetations: VegetationInstances[] = [];
+  private readonly vegetations = new Map<string, VegetationInstances>();
   private readonly vegetationGroup = new THREE.Group();
   private loadingCount = 0; // chargements actifs (throttle)
   private readonly worldGroup = new THREE.Group();
@@ -279,7 +280,9 @@ export class Cemetery {
     let best = Infinity;
     for (const slot of this.slots) {
       const d = Math.hypot(slot.plotCenter.x - cam.x, slot.plotCenter.z - cam.z);
-      if (d < slot.plotHalf + LOAD_RADIUS && !this.requested.has(slot.id) && this.loadingCount < MAX_CONCURRENT_LOADS) {
+      if (d > UNLOAD_RADIUS && this.loaded.has(slot.id)) {
+        this.unloadCemetery(slot.id);
+      } else if (d < slot.plotHalf + LOAD_RADIUS && !this.requested.has(slot.id) && this.loadingCount < MAX_CONCURRENT_LOADS) {
         void this.loadCemetery(slot);
       }
       if (d < slot.plotHalf + NEAR_MARGIN && d < best) {
@@ -291,6 +294,30 @@ export class Cemetery {
       this.nearestId = nearestId;
       this.nearestCb(nearestId ? this.slots.find((s) => s.id === nearestId)!.company : null);
     }
+  }
+
+  private unloadCemetery(slotId: string) {
+    const terrain = this.terrains.get(slotId);
+    if (terrain) {
+      this.groundPlanesGroup.remove(terrain.mesh);
+      terrain.dispose();
+      this.terrains.delete(slotId);
+    }
+    const field = this.grassFields.get(slotId);
+    if (field) {
+      this.grassGroup.remove(field.mesh);
+      field.dispose();
+      this.grassFields.delete(slotId);
+    }
+    const veg = this.vegetations.get(slotId);
+    if (veg) {
+      for (const m of veg.meshes) this.vegetationGroup.remove(m);
+      veg.dispose();
+      this.vegetations.delete(slotId);
+    }
+    this.removeCemeteryGraves(slotId);
+    this.loaded.delete(slotId);
+    this.requested.delete(slotId); // permet le rechargement au retour
   }
 
   private async loadCemetery(slot: WorldSlotWithCompany) {
@@ -320,11 +347,11 @@ export class Cemetery {
       this.buildCemeteryGraves(slot, detail.colleagues);
       if (grassField) {
         this.grassGroup.add(grassField.mesh);
-        this.grassFields.push(grassField);
+        this.grassFields.set(slot.id, grassField);
       }
       if (veg) {
         for (const m of veg.meshes) this.vegetationGroup.add(m);
-        this.vegetations.push(veg);
+        this.vegetations.set(slot.id, veg);
       }
     } catch {
       // ponytail: pas de backoff ; le cimetière reste vide jusqu'au prochain enterWorld.
@@ -360,16 +387,16 @@ export class Cemetery {
     }
   }
 
-  private clearWorld() {
+  clearWorld() {
     disposeObject(this.worldGroup);
     this.worldGroup.clear();
     disposeObject(this.gravesGroup);
     this.gravesGroup.clear();
-    for (const field of this.grassFields) field.dispose();
-    this.grassFields.length = 0;
+    for (const field of this.grassFields.values()) field.dispose();
+    this.grassFields.clear();
     this.grassGroup.clear();
-    for (const v of this.vegetations) v.dispose();
-    this.vegetations.length = 0;
+    for (const v of this.vegetations.values()) v.dispose();
+    this.vegetations.clear();
     this.vegetationGroup.clear();
     for (const t of this.terrains.values()) t.dispose();
     this.terrains.clear();
@@ -483,12 +510,12 @@ export class Cemetery {
     this.decor.update(dt, this.clock.elapsedTime);
     const t = this.clock.elapsedTime;
     const cam = this.camera.position;
-    for (const field of this.grassFields) {
+    for (const field of this.grassFields.values()) {
       field.update(t);
       const d = Math.hypot(field.center.x - cam.x, field.center.z - cam.z);
       field.mesh.count = d < GRASS_LOD_RADIUS ? MAX_BLADES : d < GRASS_LOD_MED ? GRASS_LOD_FAR : 0;
     }
-    for (const v of this.vegetations) {
+    for (const v of this.vegetations.values()) {
       const dv = Math.hypot(v.center.x - cam.x, v.center.z - cam.z);
       const visible = dv < LOAD_RADIUS * 1.5;
       for (const m of v.meshes) m.count = visible ? (m.userData.maxCount as number) : 0;
