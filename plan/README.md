@@ -104,7 +104,7 @@ Les flags à basculer pour VOIR le rework en jeu (par ordre de sûreté/impact) 
 | Depth prepass (perf) | `?prepass=1` | URL | image identique, `window.__perf.fps` en hausse |
 | Ombres CSM/PCSS | `CSM_SHADOWS_ENABLED=true` | `scene/shadowIntegration.ts` | **mesurer** le coût WebGL, retomber si trop lourd |
 | Ring d'herbe « partout » | `GRASS_RING_ENABLED=true` | `scene/grassRing.ts` (via worldStreamer) | **couper l'herbe par-tranche** sinon double rendu |
-| Arbres procéduraux (hêtre) | `PROCEDURAL_TREES_ENABLED=true` + passer un `renderer` | `scene/vegetation.ts` | A/B vs GLTF ; valider densité/perf |
+| Arbres procéduraux (hêtre) | ✅ **ACTIVÉ** (`PROCEDURAL_TREES_ENABLED=true` + renderer câblé cemetery→streamer→chunk) | `scene/vegetation.ts` | valider à l'œil : rendu + coût de capture par chunk au chargement ; revenir à `false` si janky |
 
 **Baselines e2e** : les specs sont écrits, exécution différée (serveur+DB). Pour générer les
 références : `pnpm db:up` puis `UPDATE_BASELINES=1 pnpm e2e` (crée `e2e/baselines/*.png`), une
