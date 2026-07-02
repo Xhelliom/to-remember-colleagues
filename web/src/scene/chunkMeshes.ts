@@ -43,7 +43,7 @@ export async function buildChunkMeshes(
     shouldHaveGrass(karma, ambiance.seasonKey)
       ? GrassField.create(companyId, karma, frame, chunkWidth, layout.plotDepth, range.start, range.end, terrain)
       : Promise.resolve(null),
-    VegetationInstances.create(companyId, frame, chunkWidth, layout.plotDepth, range.start, range.end, clustersInChunk, terrain),
+    VegetationInstances.create(companyId, frame, chunkWidth, layout.plotDepth, range.start, range.end, terrain),
     ClusterBiomes.create(companyId, frame, terrain, clustersInChunk),
   ]);
 
