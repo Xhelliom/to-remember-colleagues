@@ -1,10 +1,10 @@
 # Référentiel de similarité — Cluster biome vs concept image
 
 Objectif : mesurer finement l'écart entre le cluster généré (`?testCluster=<seed>`)
-et `images/cluster-cocoon-concept.png`, avec des cibles chiffrées et une méthode
+et `web/src/scene/biomes/clairiere/concept.png`, avec des cibles chiffrées et une méthode
 de mesure reproductible. Remplace le jugement « ça ressemble » par un score.
 
-Référence : `images/cluster-cocoon-concept.png` (1024×1024).
+Référence : `web/src/scene/biomes/clairiere/concept.png` (1024×1024).
 
 ---
 
@@ -74,13 +74,13 @@ Rendu de référence : capture **1024×1024** à la caméra canonique (G20).
 Régions normalisées : haut `y∈[0,.33]`, milieu `[.33,.66]`, bas `[.66,1]` ;
 colonne centrale `x∈[.4,.6]` ; bordure = 12 % extérieurs.
 
-**Méthode de comparaison fine** : l'analyseur (`e2e/clusterMetrics.ts`) calcule le
+**Méthode de comparaison fine** : l'analyseur (`web/src/scene/biomes/clairiere/metrics.ts`) calcule le
 **même vecteur de métriques sur le concept ET sur le rendu**. Similarité = `1 − distance
 L2 normalisée` entre les deux vecteurs (`similarity()`).
 
 ### 2.1 Vecteur de référence — MESURÉ sur le concept (source de vérité)
 
-Extrait par `node e2e/analyzeCluster.ts images/cluster-cocoon-concept.png`.
+Extrait par `node e2e/analyzeBiome.ts web/src/scene/biomes/clairiere/concept.png`.
 Ces valeurs remplacent mes estimations : le rendu doit converger vers **elles**.
 
 | Champ | Réf. concept | Robustesse | Lecture |
@@ -138,7 +138,7 @@ score_total = 0,6 · score_geo + 0,4 · score_photo
 - **Géométrique** : `web/src/scene/clusterGeometry.ts` (pur) + `clusterGeometry.test.ts`
   — assertions G1–G20 sur les paramètres/ancres du biome. Aucun rendu, déterministe.
 - **Photométrique** : `e2e/clusterBiome.spec.ts` capture le PNG carré canonique ;
-  `e2e/analyzeCluster.ts` calcule P1–P9 sur le rendu **et** sur le concept, émet le
+  `web/src/scene/biomes/clairiere/metrics.ts` calcule P1–P9 sur le rendu **et** sur le concept, émet le
   vecteur + le score, échoue hors tolérance. (décodage PNG via `pngjs`, déjà tirable
   par Playwright ; sinon `sharp`.)
 

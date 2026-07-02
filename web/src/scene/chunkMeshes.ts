@@ -10,7 +10,7 @@ import { GrassField, shouldHaveGrass } from "./grassField.ts";
 import { TerrainChunk } from "./terrain.ts";
 import { VegetationInstances } from "./vegetation.ts";
 import { buildChunkFence, chunkReach, disposeFence } from "./fence.ts";
-import { ClusterBiomes } from "./clusterBiome.ts";
+import { ClusterBiomes } from "./biomes/clairiere/builder.ts";
 
 export type ChunkMeshes = {
   terrain: TerrainChunk;

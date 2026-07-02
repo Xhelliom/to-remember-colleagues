@@ -3,11 +3,11 @@
 // et monument central. Effet « cathédrale naturelle » (phase 4).
 // Cibles mesurables : plans/CLUSTER_BIOME_CRITERIA.md.
 import * as THREE from "three";
-import { seededRandom } from "../graves.ts";
-import { hashSeed, CLUSTER_RADIUS, type ClusterInfo } from "../procedural.ts";
-import { toWorld, type Frame } from "../worldLayout.ts";
-import { loadGltf } from "./grass.ts";
-import type { TerrainChunk } from "./terrain.ts";
+import { seededRandom } from "../../../graves.ts";
+import { hashSeed, CLUSTER_RADIUS, type ClusterInfo } from "../../../procedural.ts";
+import { toWorld, type Frame } from "../../../worldLayout.ts";
+import { loadGltf } from "../../grass.ts";
+import type { TerrainChunk } from "../../terrain.ts";
 
 // --- Rings concentriques (m), ancrés sur l'anneau de tombes existant ---
 export const GRAVE_RING = CLUSTER_RADIUS;   // 3 — rayon des tombes (placeCluster)

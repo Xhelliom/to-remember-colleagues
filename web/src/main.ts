@@ -7,7 +7,7 @@ import { Cemetery } from "./cemetery.ts";
 import { hideAuth, setupAuth, showAuth } from "./ui/auth.ts";
 import { hideMenu, refreshMenu, setMenuUser, setupMenu, showMenu } from "./ui/menu.ts";
 import { hideHud, setupHud, showWorldHud } from "./ui/hud.ts";
-import { buildClusterBiome, graveAnchors, EARTH_RADIUS } from "./scene/clusterBiome.ts";
+import { buildClusterBiome, graveAnchors, EARTH_RADIUS } from "./scene/biomes/clairiere/builder.ts";
 import { GrassField } from "./scene/grassField.ts";
 import type { ClusterInfo } from "./procedural.ts";
 import type { Frame } from "./worldLayout.ts";
