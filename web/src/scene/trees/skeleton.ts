@@ -74,7 +74,7 @@ export type TreeSpecies = {
 };
 
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5)); // ≈ 137,5° — phyllotaxie spirale
-const BRANCH_TILT_ANGLE = 0.55; // rad, inclinaison initiale d'une branche vs l'horizontale
+const BRANCH_TILT_ANGLE = 0.68; // rad, inclinaison initiale d'une branche vs l'horizontale (+ vers le haut, moins retombant)
 const TIP_RADIUS_RATIO = 0.35; // rayon au bout d'une branche / rayon à sa base
 const VEC_EPSILON = 1e-8;
 const LEAF_SCALE_MIN = 0.75;
@@ -84,22 +84,24 @@ const LEAF_SCALE_RANGE = 0.5;
 export const BEECH_SPECIES: TreeSpecies = {
   trunkHeight: 6,
   trunkSegments: 8,
-  trunkBaseRadius: 0.22,
-  trunkTipRadius: 0.09,
-  trunkLeanMax: 0.35,
-  crownCenterHeightRatio: 0.62,
-  crownRadiusXZ: 3.4,
-  crownRadiusY: 2.6,
-  branchLevels: 2,
-  branchesPerLevel: [7, 4],
+  trunkBaseRadius: 0.26, // + épais (moins grêle)
+  trunkTipRadius: 0.1,
+  trunkLeanMax: 0.28, // tronc plus droit
+  // Couronne remontée et resserrée : le bas de l'ellipsoïde ne descend plus jusqu'au
+  // sol → le tropisme n'attire plus les branches basses vers le bas (effet « racines »).
+  crownCenterHeightRatio: 0.72,
+  crownRadiusXZ: 3.0,
+  crownRadiusY: 2.1,
+  branchLevels: 3, // 3 niveaux → structure dense, moins grêle
+  branchesPerLevel: [6, 4, 2], // 48 brindilles (× leafAnchorsPerTwig = 384 ancres < 400)
   branchSegments: 5,
-  branchLengthRatio: 0.62,
-  branchRadiusTaper: 0.55,
-  branchStartRatio: 0.35,
-  tropismWeight: 0.55,
-  jitterWeight: 0.18,
+  branchLengthRatio: 0.66,
+  branchRadiusTaper: 0.62, // branches plus charpentées
+  branchStartRatio: 0.5, // branches à partir de la moitié du tronc (bas dégagé)
+  tropismWeight: 0.62, // colle davantage à l'enveloppe → couronne ronde et pleine
+  jitterWeight: 0.16,
   leafAnchorsPerTwig: 8,
-  leafSpread: 0.35,
+  leafSpread: 0.4,
 };
 
 // --- Petite algèbre vectorielle locale (pas de dépendance Three.js ici) ---

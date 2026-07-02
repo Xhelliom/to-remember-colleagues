@@ -8,9 +8,9 @@ import { seededRandom } from "../../graves.ts";
 import { hashSeed } from "../../procedural.ts";
 
 /** Nombre de lames par ancre selon le palier de LOD (0 = hero, le plus dense). */
-const LEAVES_PER_ANCHOR_BY_LOD = [3, 2, 1, 1] as const;
-const LEAF_LENGTH = 0.09; // m — feuille de hêtre stylisée
-const LEAF_WIDTH = 0.055; // m
+const LEAVES_PER_ANCHOR_BY_LOD = [6, 4, 2, 1] as const; // + dense (feuillage trop clairsemé)
+const LEAF_LENGTH = 0.14; // m — feuille de hêtre stylisée, agrandie pour combler la couronne
+const LEAF_WIDTH = 0.085; // m
 /** Écart angulaire entre les lames d'un même spray, autour de l'axe de pousse. */
 const SPRAY_SPREAD_ANGLE = 0.6; // rad
 
