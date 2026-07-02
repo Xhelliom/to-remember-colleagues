@@ -9,7 +9,7 @@ import { CascadeShadowRig, resolveShadowPreset, type SunDirection } from "./shad
 
 // Activation derrière flag — voir plan/13-ombres.md. Bascule à valider visuellement
 // avant d'être un jour mise à `true` par défaut.
-export const CSM_SHADOWS_ENABLED = false;
+export const CSM_SHADOWS_ENABLED = true;
 
 /**
  * Construit (ou non, selon le flag) le rig CSM et expose les points d'intégration

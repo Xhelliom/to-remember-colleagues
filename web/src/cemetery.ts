@@ -15,6 +15,8 @@ import { FirstPersonControls, EYE_HEIGHT } from "./scene/controls.ts";
 import { selectLodTier } from "./scene/distanceLod.ts";
 import { AmbientAudio } from "./scene/ambientAudio.ts";
 import { ShadowIntegration } from "./scene/shadowIntegration.ts";
+import { CemeteryPost } from "./scene/cemeteryPost.ts";
+import { pickNearestColleague, FOCUS_RADIUS } from "./scene/graveFocus.ts";
 
 const FOV = 70;
 const NEAR = 0.1;
@@ -22,7 +24,6 @@ const FAR = 400;
 const MAX_PIXEL_RATIO = 2;
 const TONE_MAPPING_EXPOSURE = 1.0;
 const MAX_DELTA = 0.05;
-const FOCUS_RADIUS = 3.2;
 const GRASS_LOD_RADIUS = 30;  // en dessous : rendu complet
 const GRASS_LOD_MED = 50;     // en dessous : rendu réduit ; au-delà : zéro
 const GRASS_LOD_MED_CAP = 400; // plafond d'instances pour le palier réduit
@@ -55,6 +56,7 @@ export class Cemetery {
   private readonly decor = new Decor();
   private readonly controls: FirstPersonControls;
   private readonly shadowIntegration: ShadowIntegration;
+  private readonly post: CemeteryPost | null; // post-traitement en jeu (issue #14), non nul si `?post=1`
   private readonly groundMat = new THREE.MeshStandardMaterial({ roughness: 1 });
   private readonly ground: THREE.Mesh;
   private readonly gravesGroup = new THREE.Group();
@@ -111,9 +113,7 @@ export class Cemetery {
     // Rendu filmique : les HDRI/émissifs (tombes hantées/bénies) saturaient sans lui.
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = TONE_MAPPING_EXPOSURE;
-    // Arbres procéduraux (mission 10) : le streamer a besoin du renderer pour la
-    // capture cards/impostors. Injecté ici (l'initialiseur du champ `streamer`
-    // s'exécute avant ce corps de constructeur, `this.renderer` y serait undefined).
+    // Arbres procéduraux : injection tardive du renderer (l'init du champ `streamer` précède ce corps).
     this.streamer.setRenderer(this.renderer);
 
     this.camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, NEAR, FAR);
@@ -134,6 +134,8 @@ export class Cemetery {
     this.controls = new FirstPersonControls(this.camera, this.renderer.domElement);
     this.scene.add(this.controls.object);
     this.controls.placeAt(0, 0);
+
+    this.post = CemeteryPost.create(this.renderer, this.scene, this.camera);
 
     this.ambiance = this.resolveAmbiance();
     this.applyAmbiance(this.ambiance);
@@ -291,6 +293,7 @@ export class Cemetery {
     fog.density = effective.fogDensity;
     this.lighting.apply(effective);
     this.shadowIntegration.applyAmbiance(effective.keyLightColor, effective.keyLightIntensity, this.lighting.sunDirection);
+    this.post?.setGrade(a.timeKey);
     this.groundMat.color.setHex(effective.groundColor);
     // La forêt/les arches sont portées par world.ts ; ici, seulement les particules.
     this.decor.build(effective, PARTICLE_HALF, { structures: false });
@@ -390,16 +393,7 @@ export class Cemetery {
   // ---- Boucle ----
 
   private updateFocus() {
-    const cam = this.camera.position;
-    let nearest: Colleague | null = null;
-    let best = FOCUS_RADIUS;
-    for (const grave of this.gravesGroup.children) {
-      const d = Math.hypot(grave.position.x - cam.x, grave.position.z - cam.z);
-      if (d < best) {
-        best = d;
-        nearest = (grave.userData.colleague as Colleague) ?? null;
-      }
-    }
+    const nearest = pickNearestColleague(this.gravesGroup.children, this.camera.position, FOCUS_RADIUS);
     if (nearest !== this.focused) {
       this.focused = nearest;
       this.focusCb(nearest);
@@ -468,13 +462,15 @@ export class Cemetery {
         for (const m of veg.meshes) m.count = visible ? (m.userData.maxCount as number) : 0;
       }
     }
-    this.renderer.render(this.scene, this.camera);
+    if (this.post) this.post.render();
+    else this.renderer.render(this.scene, this.camera);
   };
 
   private onResize = () => {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.post?.setSize(window.innerWidth, window.innerHeight);
   };
 
   private onActionKey = (e: KeyboardEvent) => {
