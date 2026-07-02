@@ -9,7 +9,11 @@ import { hideMenu, refreshMenu, setMenuUser, setupMenu, showMenu } from "./ui/me
 import { hideHud, setupHud, showWorldHud } from "./ui/hud.ts";
 import { buildClusterBiome, graveAnchors, EARTH_RADIUS } from "./scene/biomes/clairiere/builder.ts";
 import { GrassField } from "./scene/grassField.ts";
-import { getAmbiance, resolveTimeKey, type SeasonKey } from "./ambiance.ts";
+import { getAmbiance, getFilmGrade, resolveTimeKey, type SeasonKey } from "./ambiance.ts";
+import { Flythrough, getBookmark, parseShotParam, type BookmarkPose } from "./scene/bookmarks.ts";
+import { AutoExposurePass } from "./scene/post/autoExposure.ts";
+import { applyFilmGrade, createGoldenGradePass } from "./scene/post/grade.ts";
+import { createFogRenderTarget, GroundFogPass } from "./scene/post/groundFog.ts";
 import type { ClusterInfo } from "./procedural.ts";
 import type { Frame } from "./worldLayout.ts";
 
@@ -35,6 +39,15 @@ const PERF_FRAME_WINDOW = 30; // frames sur lesquelles la fps est moyennée (gli
 const READY_FRAME_COUNT = 10; // nb de frames avant de considérer la scène stable (__ready)
 const HARNESS_SUN_DISTANCE = 16; // distance soleil↔cible, calée sur le rig d'origine (3,16,2)
 const HARNESS_SEASON: SeasonKey = "summer"; // fixe → déterminisme indépendant de la date du run
+
+// Post/ambiance additifs (issue #14) : auto-exposition, grade filmique par heure,
+// brume de hauteur — regroupés derrière UN SEUL flag `?post=1` (défaut : comportement
+// actuel inchangé, aucune de ces passes n'est construite). `?shot=1..9`/`?shot=fly`
+// (bookmarks/flythrough, scene/bookmarks.ts) sont indépendants de ce flag : la
+// caméra seule change, pas le pipeline de post-traitement.
+const POST_FX_PARAM = "post";
+const SHOT_PARAM = "shot";
+const DEFAULT_GRADE_HOUR = 12; // heure utilisée pour le grade filmique quand `?T=` est absent
 
 type PerfSnapshot = { drawCalls: number; triangles: number; programs: number; fps: number };
 /** Fenêtre enrichie des hooks dev/e2e — jamais présente en prod (voir installHarnessHooks). */
@@ -68,13 +81,19 @@ function installHarnessHooks(renderer: THREE.WebGLRenderer): () => void {
   };
 }
 
+/** Positionne la caméra sur une pose (bookmark ou frame de flythrough, voir
+ *  scene/bookmarks.ts) — partagé par `applyCamPose` (`?cam=`) et le harnais `?shot=`. */
+function applyBookmarkPose(camera: THREE.PerspectiveCamera, pose: BookmarkPose): void {
+  camera.position.set(pose.x, pose.y, pose.z);
+  camera.rotation.order = "YXZ";
+  camera.rotation.set(pose.pitch, pose.yaw, 0);
+}
+
 /** Applique une pose caméra `x,y,z,yaw,pitch[,fov]` (voir e2e/helpers/harness.ts). */
 function applyCamPose(camera: THREE.PerspectiveCamera, raw: string): void {
   const [x, y, z, yaw, pitch, fov] = raw.split(",").map(Number);
   if ([x, y, z, yaw, pitch].some((n) => Number.isNaN(n))) return;
-  camera.position.set(x, y, z);
-  camera.rotation.order = "YXZ";
-  camera.rotation.set(pitch, yaw, 0);
+  applyBookmarkPose(camera, { x, y, z, yaw, pitch });
   if (!Number.isNaN(fov)) {
     camera.fov = fov;
     camera.updateProjectionMatrix();
@@ -114,6 +133,9 @@ function applyTimeOverride(
 async function runClusterTest(c: HTMLCanvasElement) {
   loader.classList.add("hidden");
   const harnessParams = new URLSearchParams(window.location.search);
+  // `?post=1` : active auto-exposition/grade filmique/brume (issue #14) — voir
+  // POST_FX_PARAM. Absent par défaut → composer strictement identique à avant.
+  const postFxEnabled = harnessParams.get(POST_FX_PARAM) === "1";
 
   // preserveDrawingBuffer : permet au test E2E de lire le rendu via toDataURL
   // (évite le screenshot Playwright, très lent sous swiftshader headless).
@@ -137,7 +159,18 @@ async function runClusterTest(c: HTMLCanvasElement) {
   camera.position.set(0, 1.7, 0.5);
   camera.lookAt(0, 1.4, 9);
   const camParam = harnessParams.get("cam");
-  if (camParam) applyCamPose(camera, camParam); // défaut inchangé si absent
+  // `?shot=1..9` (bookmark QA/visite guidée) prime sur `?cam=` ; `?shot=fly` démarre
+  // le tour automatique (piloté frame par frame dans la boucle de rendu plus bas).
+  const shotParam = parseShotParam(harnessParams.get(SHOT_PARAM));
+  let flythrough: Flythrough | undefined;
+  if (shotParam === "fly") {
+    flythrough = new Flythrough();
+  } else if (typeof shotParam === "number") {
+    const bookmark = getBookmark(shotParam);
+    if (bookmark) applyBookmarkPose(camera, bookmark.pose);
+  } else if (camParam) {
+    applyCamPose(camera, camParam); // défaut inchangé si absent
+  }
 
   // Contraste concept : canopée/bords sombres, MAIS flaque de lumière chaude sur
   // le sol de la clairière (soleil plongeant de l'avant vers le centre + graves).
@@ -222,16 +255,31 @@ async function runClusterTest(c: HTMLCanvasElement) {
 
   // Étalonnage (color grade) : désature + vignette + léger contraste → matche le
   // rendu gradé sombre du concept (baisse green/meanSat, renforce la vignette).
-  const composer = new EffectComposer(renderer);
+  // `?post=1` : le buffer porte une depthTexture (brume de hauteur) — sinon composer
+  // strictement identique à avant (comportement par défaut inchangé).
+  const composer = postFxEnabled
+    ? new EffectComposer(renderer, createFogRenderTarget(renderer))
+    : new EffectComposer(renderer);
   composer.addPass(new RenderPass(scene, camera));
   composer.addPass(new ShaderPass(GRADE_SHADER));
+
+  if (postFxEnabled) {
+    composer.addPass(new AutoExposurePass());
+    const goldenGrade = createGoldenGradePass();
+    const gradeHour = timeParam !== null && !Number.isNaN(Number(timeParam)) ? Number(timeParam) : DEFAULT_GRADE_HOUR;
+    applyFilmGrade(goldenGrade, getFilmGrade(resolveTimeKey("auto", gradeHour)));
+    composer.addPass(goldenGrade);
+    composer.addPass(new GroundFogPass(camera));
+  }
 
   // window.__perf/__ready : dev/e2e uniquement, jamais en prod (voir installHarnessHooks).
   const tickHarness = import.meta.env.DEV ? installHarnessHooks(renderer) : () => {};
 
   const clock = new THREE.Clock();
   renderer.setAnimationLoop(() => {
-    grass?.update(clock.getElapsedTime());
+    const elapsed = clock.getElapsedTime();
+    grass?.update(elapsed);
+    if (flythrough) applyBookmarkPose(camera, flythrough.samplePose(elapsed));
     composer.render();
     tickHarness();
   });

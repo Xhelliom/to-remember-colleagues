@@ -223,6 +223,39 @@ export function applyWeather(a: Ambiance, weather: WeatherKey): Ambiance {
   return r;
 }
 
+// --- Grade filmique par heure (issue #14) -----------------------------------
+// Teinte des ombres/hautes-lumières (split teal/orange), couplée au moment de la
+// journée — consommé par `scene/post/grade.ts` (passe EffectComposer additive,
+// gate `?post=1` dans `main.ts`, défaut inchangé).
+
+export type FilmGrade = {
+  /** Teinte multipliée dans les tons sombres (RGB, 1 = neutre). */
+  readonly shadowTint: readonly [number, number, number];
+  /** Teinte multipliée dans les hautes lumières (RGB, 1 = neutre). */
+  readonly highlightTint: readonly [number, number, number];
+  /** >1 = plus contrasté, <1 = plus plat. */
+  readonly contrast: number;
+  /** Multiplicateur de saturation (0 = niveaux de gris, 1 = inchangé). */
+  readonly saturation: number;
+};
+
+const FILM_GRADE: Record<TimeKey, FilmGrade> = {
+  // Aube : ombres bleu-teal froides, hautes lumières orangées (golden hour classique).
+  dawn: { shadowTint: [0.55, 0.68, 0.74], highlightTint: [1.18, 0.94, 0.72], contrast: 1.08, saturation: 1.1 },
+  // Midi : grade quasi neutre, très légèrement désaturé (lumière plate, zénithale).
+  day: { shadowTint: [0.78, 0.82, 0.84], highlightTint: [1.03, 1.0, 0.95], contrast: 1.0, saturation: 0.95 },
+  // Crépuscule : split plus marqué que l'aube (ombres plus froides, hautes lumières plus chaudes).
+  dusk: { shadowTint: [0.48, 0.58, 0.74], highlightTint: [1.22, 0.8, 0.58], contrast: 1.12, saturation: 1.18 },
+  // Nuit : ombres bleutées neutres, désaturation globale (vision scotopique).
+  night: { shadowTint: [0.62, 0.7, 0.86], highlightTint: [0.88, 0.9, 1.06], contrast: 1.04, saturation: 0.8 },
+};
+
+/** Paramètres de grade filmique pour un moment de la journée — courbes DISTINCTES
+ *  par `TimeKey` (protégé par un test dawn ≠ day dans post/grade.test.ts). */
+export function getFilmGrade(timeKey: TimeKey): FilmGrade {
+  return FILM_GRADE[timeKey];
+}
+
 /** Mélange linéaire de deux couleurs hexadécimales (t entre 0 et 1). */
 export function mix(a: number, b: number, t: number): number {
   const ar = (a >> 16) & 0xff;
