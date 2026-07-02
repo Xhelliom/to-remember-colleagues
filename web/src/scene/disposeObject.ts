@@ -1,12 +1,15 @@
 import type * as THREE from "three";
 
-/** Libère géométries ET matériaux/textures d'un objet (sans vider le groupe). */
+/** Libère géométries ET matériaux/textures d'un objet (sans vider le groupe).
+ *  Ignore tout ce qui porte `userData.shared` (géométries/matériaux mutualisés
+ *  entre plusieurs objets, ex. accessoires de tombe — voir graves.ts). */
 export function disposeObject(root: THREE.Object3D) {
   root.traverse((obj) => {
     const mesh = obj as THREE.Mesh;
-    if (mesh.geometry) mesh.geometry.dispose();
+    if (mesh.geometry && !mesh.geometry.userData?.shared) mesh.geometry.dispose();
     const mat = mesh.material;
     for (const m of Array.isArray(mat) ? mat : mat ? [mat] : []) {
+      if (m.userData?.shared) continue;
       const map = (m as THREE.MeshStandardMaterial).map;
       if (map) map.dispose();
       // splatTex est une DataTexture hors du circuit standard de dispose
