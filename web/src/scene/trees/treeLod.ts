@@ -87,6 +87,10 @@ const CANOPY_MARGIN = 20; // m au-delà du placement le plus lointain
 const CANOPY_THICKNESS = 0; // non utilisé (mur simple), gardé nommé pour lisibilité de l'appel
 const CANOPY_BASE_HEIGHT = 9;
 const CANOPY_HEIGHT_VARIANCE = 4;
+// Mur de « forêt lointaine » (concept open-world LAAS) DÉSACTIVÉ : dans un cimetière
+// borné il dessinait un grand cercle vert autour de la parcelle. Les impostors couvrent
+// déjà le fond. Réactiver (+ retuner rayon/hauteur) si on veut une silhouette au loin.
+const CANOPY_SHELL_ENABLED = false;
 
 type CardsVariant = { readonly bark: THREE.InstancedMesh; readonly foliage: THREE.InstancedMesh };
 type CardsBand = { readonly variants: readonly CardsVariant[] };
@@ -173,7 +177,7 @@ export class TreeLodField {
   }
 
   private static buildCanopy(seed: number, placements: readonly TreePlacement[]): CanopyShellBuild | null {
-    if (placements.length === 0) return null;
+    if (!CANOPY_SHELL_ENABLED || placements.length === 0) return null;
     const center = placementCentroid(placements);
     const radius = placementBoundsRadius(placements, center.x, center.z) + CANOPY_MARGIN;
     void CANOPY_THICKNESS; // nommé pour lisibilité de l'appel (mur simple, pas d'épaisseur)
