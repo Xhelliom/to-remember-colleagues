@@ -156,6 +156,7 @@ export class TreeLodField {
     private readonly cardsR1: CardsBand,
     private readonly cardsR2: CardsBand,
     private readonly impostor: ImpostorMesh,
+    private readonly renderer: THREE.WebGLRenderer,
     canopy: CanopyShellBuild | null,
   ) {
     // Palier initial = le plus lointain : le premier update() construit tout
@@ -173,7 +174,7 @@ export class TreeLodField {
     const cardsR2 = buildCardsBand(CARDS_R2_LOD, renderer);
     const impostor = buildImpostorMesh(getOrCaptureImpostorAtlas(renderer), IMPOSTOR_CAPACITY);
     const canopy = TreeLodField.buildCanopy(seed, placements);
-    return new TreeLodField(placements, cardsR1, cardsR2, impostor, canopy);
+    return new TreeLodField(placements, cardsR1, cardsR2, impostor, renderer, canopy);
   }
 
   private static buildCanopy(seed: number, placements: readonly TreePlacement[]): CanopyShellBuild | null {
@@ -282,7 +283,8 @@ export class TreeLodField {
 
   private buildHero(i: number): void {
     const placement = this.placements[i];
-    const tree = buildTree(placement.seed, { foliageMode: "mesh" });
+    // Hybride (LAAS) : cartes-grappes (masse feuillue dense) + vraies feuilles (détail de près).
+    const tree = buildTree(placement.seed, { foliageMode: "hybrid", renderer: this.renderer });
     tree.group.position.set(placement.x, placement.y, placement.z);
     tree.group.rotation.y = placement.yaw;
     tree.group.scale.setScalar(placement.scale);

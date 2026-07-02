@@ -15,7 +15,6 @@ import { FirstPersonControls, EYE_HEIGHT } from "./scene/controls.ts";
 import { selectLodTier } from "./scene/distanceLod.ts";
 import { AmbientAudio } from "./scene/ambientAudio.ts";
 import { ShadowIntegration } from "./scene/shadowIntegration.ts";
-import { CemeteryPost } from "./scene/cemeteryPost.ts";
 import { pickNearestColleague, FOCUS_RADIUS } from "./scene/graveFocus.ts";
 
 const FOV = 70;
@@ -56,7 +55,6 @@ export class Cemetery {
   private readonly decor = new Decor();
   private readonly controls: FirstPersonControls;
   private readonly shadowIntegration: ShadowIntegration;
-  private readonly post: CemeteryPost | null; // post-traitement en jeu (issue #14), non nul si `?post=1`
   private readonly groundMat = new THREE.MeshStandardMaterial({ roughness: 1 });
   private readonly ground: THREE.Mesh;
   private readonly gravesGroup = new THREE.Group();
@@ -134,8 +132,6 @@ export class Cemetery {
     this.controls = new FirstPersonControls(this.camera, this.renderer.domElement);
     this.scene.add(this.controls.object);
     this.controls.placeAt(0, 0);
-
-    this.post = CemeteryPost.create(this.renderer, this.scene, this.camera);
 
     this.ambiance = this.resolveAmbiance();
     this.applyAmbiance(this.ambiance);
@@ -293,7 +289,6 @@ export class Cemetery {
     fog.density = effective.fogDensity;
     this.lighting.apply(effective);
     this.shadowIntegration.applyAmbiance(effective.keyLightColor, effective.keyLightIntensity, this.lighting.sunDirection);
-    this.post?.setGrade(a.timeKey);
     this.groundMat.color.setHex(effective.groundColor);
     // La forêt/les arches sont portées par world.ts ; ici, seulement les particules.
     this.decor.build(effective, PARTICLE_HALF, { structures: false });
@@ -462,15 +457,13 @@ export class Cemetery {
         for (const m of veg.meshes) m.count = visible ? (m.userData.maxCount as number) : 0;
       }
     }
-    if (this.post) this.post.render();
-    else this.renderer.render(this.scene, this.camera);
+    this.renderer.render(this.scene, this.camera);
   };
 
   private onResize = () => {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
-    this.post?.setSize(window.innerWidth, window.innerHeight);
   };
 
   private onActionKey = (e: KeyboardEvent) => {
