@@ -8,10 +8,11 @@ import { createSky, type Sky } from "./scene/sky.ts";
 import { HdriSky } from "./scene/hdriSky.ts";
 import { Lighting } from "./scene/lighting.ts";
 import { Decor } from "./scene/decor.ts";
-import { CHUNK_LOAD_RADIUS } from "./chunkStreaming.ts";
+import { CHUNK_UNLOAD_RADIUS } from "./chunkStreaming.ts";
 import { WorldStreamer } from "./scene/worldStreamer.ts";
 import { disposeObject } from "./scene/disposeObject.ts";
 import { FirstPersonControls, EYE_HEIGHT } from "./scene/controls.ts";
+import { selectLodTier } from "./scene/distanceLod.ts";
 
 const FOV = 70;
 const NEAR = 0.1;
@@ -20,9 +21,10 @@ const MAX_PIXEL_RATIO = 2;
 const TONE_MAPPING_EXPOSURE = 1.0;
 const MAX_DELTA = 0.05;
 const FOCUS_RADIUS = 3.2;
-const GRASS_LOD_RADIUS = 30; // en dessous : rendu complet
-const GRASS_LOD_MED = 50;    // en dessous : rendu réduit ; au-delà : zéro
-const GRASS_LOD_FAR = 400;   // instances pour les parcelles en LOD intermédiaire
+const GRASS_LOD_RADIUS = 30;  // en dessous : rendu complet
+const GRASS_LOD_MED = 50;     // en dessous : rendu réduit ; au-delà : zéro
+const GRASS_LOD_MED_CAP = 400; // plafond d'instances pour le palier réduit
+const LOD_HYSTERESIS = 2; // marge anti-clignotement à la frontière d'un palier (scene/distanceLod.ts)
 const GROUND_PAD = 60; // débord du sol autour des bornes du monde
 const PARTICLE_HALF = 60; // demi-étendue des particules d'ambiance autour du spawn
 const PEER_SMOOTH_RATE = 10; // lissage exponentiel de l'interpolation des pairs
@@ -421,12 +423,18 @@ export class Cemetery {
       if (field) {
         field.update(t);
         const d = Math.hypot(field.center.x - cam.x, field.center.z - cam.z);
-        field.mesh.count = d < GRASS_LOD_RADIUS ? field.bladeCount : d < GRASS_LOD_MED ? Math.min(field.bladeCount, GRASS_LOD_FAR) : 0;
+        field.lodTier = selectLodTier(d, [GRASS_LOD_RADIUS, GRASS_LOD_MED], field.lodTier, LOD_HYSTERESIS);
+        field.mesh.count = field.lodTier === 0 ? field.bladeCount
+          : field.lodTier === 1 ? Math.min(field.bladeCount, GRASS_LOD_MED_CAP)
+          : 0;
       }
       const veg = chunk.veg;
       if (veg) {
         const dv = Math.hypot(veg.center.x - cam.x, veg.center.z - cam.z);
-        const visible = dv < CHUNK_LOAD_RADIUS * 1.5;
+        // Seuil calé sur CHUNK_UNLOAD_RADIUS : visible tant que le chunk est chargé
+        // (un seuil plus court laissait une zone morte, chunk chargé mais invisible).
+        veg.lodTier = selectLodTier(dv, [CHUNK_UNLOAD_RADIUS], veg.lodTier, LOD_HYSTERESIS);
+        const visible = veg.lodTier === 0;
         for (const m of veg.meshes) m.count = visible ? (m.userData.maxCount as number) : 0;
       }
     }

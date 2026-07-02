@@ -61,6 +61,8 @@ export class GrassField {
   readonly center: { x: number; z: number };
   readonly bladeCount: number;
   private readonly mat: THREE.MeshStandardMaterial;
+  /** Palier de LOD courant (scene/distanceLod.ts) ; 0 = plein détail au chargement. */
+  lodTier = 0;
 
   private constructor(
     mesh: THREE.InstancedMesh,

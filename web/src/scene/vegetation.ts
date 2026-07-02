@@ -110,6 +110,8 @@ function buildInstancedMeshes(srcs: SubMesh[], matrices: THREE.Matrix4[], count:
 export class VegetationInstances {
   readonly meshes: THREE.InstancedMesh[];
   readonly center: { x: number; z: number };
+  /** Palier de LOD courant (scene/distanceLod.ts) ; 0 = visible au chargement. */
+  lodTier = 0;
 
   private constructor(meshes: THREE.InstancedMesh[], center: { x: number; z: number }) {
     this.meshes = meshes;
