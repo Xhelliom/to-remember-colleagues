@@ -43,8 +43,8 @@ const PROP_ROCK_BASE_SCALE = 1.4;
 const PROP_ROCK_SCALE_DECAY = 0.18;
 
 // Allée + bornes + cailloux
-const PATH_WIDTH = 1.2;
-const PATH_LEN = 6;                   // du bord du disque vers le visiteur
+const PATH_WIDTH = 2.4;               // large → terre dominante au premier plan
+const PATH_LEN = 7;                   // du bord du disque vers le visiteur
 const GATE_OFFSET = 1.3;              // écart latéral des bornes de pierre
 const GATE_SCALE = 0.9;
 const PEBBLE_COUNT = 7;
@@ -117,7 +117,7 @@ function buildEarthDisk(group: THREE.Group, cl: Clearing, geos: THREE.BufferGeom
   const tex = loadTex(EARTH_TEX);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(2, 2);
-  const mat = new THREE.MeshStandardMaterial({ map: tex, color: 0x7a6248, roughness: 1 });
+  const mat = new THREE.MeshStandardMaterial({ map: tex, color: 0xb6a172, roughness: 1 });
   const geo = new THREE.CircleGeometry(EARTH_RADIUS, 24);
   geos.push(geo); mats.push(mat);
   const disk = new THREE.Mesh(geo, mat);
@@ -136,7 +136,7 @@ async function buildPathAndGate(group: THREE.Group, cl: Clearing, rand: () => nu
 
   const tex = loadTex(EARTH_TEX);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  const mat = new THREE.MeshStandardMaterial({ map: tex, color: 0x8a6f52, roughness: 1 });
+  const mat = new THREE.MeshStandardMaterial({ map: tex, color: 0xc4b080, roughness: 1 });
   const geo = new THREE.PlaneGeometry(PATH_WIDTH, PATH_LEN);
   geos.push(geo); mats.push(mat);
   const mesh = new THREE.Mesh(geo, mat);
