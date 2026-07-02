@@ -8,10 +8,24 @@ import { toWorld, type Frame } from "../worldLayout.ts";
 import { loadGltf } from "./grass.ts";
 import type { TerrainChunk } from "./terrain.ts";
 import { addWindWeightAttribute, applyWind, setWindTime, SOFT_TREE_WIND_POOL } from "./wind.ts";
+import { TreeLodField, type TreePlacement } from "./trees/treeLod.ts";
 
 const TREE_DENSITY = 0.004; // arbres par m², calée sur la densité visuelle précédente
 const ROCK_DENSITY = 0.0028;
 const BORDER_MARGIN = 1.5; // retrait des murs latéraux et des bouts de chemin
+const TREE_SCALE_MIN = 0.8;
+const TREE_SCALE_RANGE = 0.6;
+
+/**
+ * Bascule les arbres GLTF (island_tree/tree_small) vers la grammaire
+ * procédurale de `trees/` (missions 08-10, chaîne LOD hero→cards→impostor) —
+ * DÉFAUT INCHANGÉ (arbres GLTF, comportement actuel préservé). Coexistence
+ * A/B : n'active rien tant que ce flag n'est pas basculé ET qu'un `renderer`
+ * est fourni à `VegetationInstances.create` (nécessaire à la capture
+ * d'impostor, cf. impostors.ts) — sans lui, le chemin GLTF reste utilisé même
+ * flag à `true` (voir `create`).
+ */
+const PROCEDURAL_TREES_ENABLED = false;
 
 // Modèles décimés (tools/optimize-models.sh) : ~20k tris au lieu de 1-2M.
 function treePath(companyId: string): string {
@@ -63,6 +77,27 @@ function buildPlacementMatrices(
   });
 }
 
+/** Placements déterministes pour la chaîne LOD procédurale (trees/treeLod.ts)
+ *  — même distribution spatiale que `buildPlacementMatrices` (arbres GLTF),
+ *  mais expose position/yaw/échelle/graine bruts (la matrice seule ne suffit
+ *  pas : le blend d'impostor a besoin du yaw, cf. treeLod.ts). */
+function buildTreePlacements(
+  companyId: string, count: number, frame: Frame, halfWidth: number, zLo: number, zHi: number, terrain: TerrainChunk | undefined,
+): TreePlacement[] {
+  const rand = seededRandom(hashSeed(companyId + ":treelod:" + zLo));
+  return Array.from({ length: count }, (_, i) => {
+    const lx = (rand() * 2 - 1) * halfWidth;
+    const lz = zLo + rand() * (zHi - zLo);
+    const { x: wx, z: wz } = toWorld(frame, lx, lz);
+    return {
+      x: wx, y: terrain ? terrain.getHeightAt(wx, wz) : 0, z: wz,
+      yaw: rand() * Math.PI * 2,
+      scale: TREE_SCALE_MIN + rand() * TREE_SCALE_RANGE,
+      seed: hashSeed(`${companyId}:treelod:${zLo}:${i}`),
+    };
+  });
+}
+
 function buildInstancedMeshes(srcs: SubMesh[], matrices: THREE.Matrix4[], count: number): THREE.InstancedMesh[] {
   return srcs.map(({ geo, mat }) => {
     const m = new THREE.InstancedMesh(geo, mat, count);
@@ -104,12 +139,20 @@ export class VegetationInstances {
   readonly center: { x: number; z: number };
   /** Palier de LOD courant (scene/distanceLod.ts) ; 0 = visible au chargement. */
   lodTier = 0;
+  /** Chaîne LOD procédurale des arbres (mission 10, `PROCEDURAL_TREES_ENABLED`
+   *  uniquement) — `null` en mode GLTF par défaut. Son `.group` doit être
+   *  ajouté/retiré de la scène par l'appelant (cf. worldStreamer.ts), au même
+   *  titre que `meshes`. */
+  readonly treeLod: TreeLodField | null;
   private readonly swayMats: THREE.Material[];
 
-  private constructor(meshes: THREE.InstancedMesh[], center: { x: number; z: number }, swayMats: THREE.Material[]) {
+  private constructor(
+    meshes: THREE.InstancedMesh[], center: { x: number; z: number }, swayMats: THREE.Material[], treeLod: TreeLodField | null,
+  ) {
     this.meshes = meshes;
     this.center = center;
     this.swayMats = swayMats;
+    this.treeLod = treeLod;
   }
 
   /**
@@ -117,6 +160,11 @@ export class VegetationInstances {
    * central d'un cluster (méga-arbre ou pile de rochers) est du ressort de
    * scene/biomes/clairiere/builder.ts, qui possède déjà toute la mise en scène
    * du biome — pas de doublon ici (ancienne redondance corrigée).
+   *
+   * `renderer` (optionnel) n'active la chaîne LOD procédurale (mission 10) que
+   * si `PROCEDURAL_TREES_ENABLED` est vrai ET qu'il est fourni (nécessaire à
+   * la capture d'impostor, une seule fois par session) — sinon, arbres GLTF
+   * historiques inchangés.
    */
   static async create(
     companyId: string,
@@ -126,9 +174,11 @@ export class VegetationInstances {
     zStart: number,
     zEnd: number,
     terrain?: TerrainChunk,
+    renderer?: THREE.WebGLRenderer,
   ): Promise<VegetationInstances | null> {
+    const useProceduralTrees = PROCEDURAL_TREES_ENABLED && renderer !== undefined;
     const [treeRes, rockRes] = await Promise.allSettled([
-      loadGltf(treePath(companyId)),
+      useProceduralTrees ? Promise.resolve(null) : loadGltf(treePath(companyId)),
       loadGltf("/models/opt/rock/rock_01_2k.glb"),
     ]);
 
@@ -140,11 +190,15 @@ export class VegetationInstances {
 
     const meshes: THREE.InstancedMesh[] = [];
     const swayMats: THREE.Material[] = [];
+    let treeLod: TreeLodField | null = null;
 
-    if (treeRes.status === "fulfilled") {
+    if (useProceduralTrees) {
+      const placements = buildTreePlacements(companyId, treeCount, frame, halfWidth, zLo, zHi, terrain);
+      treeLod = TreeLodField.create(hashSeed(companyId + ":treelod:" + zLo), placements, renderer!);
+    } else if (treeRes.status === "fulfilled" && treeRes.value) {
       const srcs = extractSubMeshes(treeRes.value);
       if (srcs.length) {
-        const matrices = buildPlacementMatrices(companyId, ":trees", treeCount, frame, halfWidth, zLo, zHi, terrain, 0.8, 0.6);
+        const matrices = buildPlacementMatrices(companyId, ":trees", treeCount, frame, halfWidth, zLo, zHi, terrain, TREE_SCALE_MIN, TREE_SCALE_RANGE);
         // Même graine que le placement (déterministe) : décorrèle la phase de balancement
         // (gl_InstanceID, cf. wind.ts) d'une tranche à l'autre, sans nombre magique.
         const seedOffset = hashSeed(companyId + `:trees:${zLo}`) % 1000;
@@ -160,8 +214,8 @@ export class VegetationInstances {
       }
     }
 
-    if (!meshes.length) return null;
-    return new VegetationInstances(meshes, toWorld(frame, 0, (zStart + zEnd) / 2), swayMats);
+    if (!meshes.length && !treeLod) return null;
+    return new VegetationInstances(meshes, toWorld(frame, 0, (zStart + zEnd) / 2), swayMats, treeLod);
   }
 
   /** Avance le champ de vent partagé (cf. wind.ts — une seule horloge pour herbe et arbres). */
@@ -169,10 +223,17 @@ export class VegetationInstances {
     setWindTime(time);
   }
 
+  /** Recalcule les paliers LOD des arbres procéduraux (mission 10) selon la
+   *  position caméra — no-op si `treeLod` est absent (mode GLTF par défaut). */
+  updateTreeLod(camX: number, camY: number, camZ: number) {
+    this.treeLod?.update(camX, camZ, camY);
+  }
+
   dispose() {
     // Géométries clonées → on libère ; matériaux GLTF en cache (rochers) → non ;
     // matériaux balancés (arbres) clonés en propre → à disposer.
     for (const m of this.meshes) m.geometry.dispose();
     for (const m of this.swayMats) m.dispose();
+    this.treeLod?.dispose();
   }
 }
