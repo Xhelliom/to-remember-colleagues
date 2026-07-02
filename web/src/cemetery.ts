@@ -13,6 +13,7 @@ import { WorldStreamer } from "./scene/worldStreamer.ts";
 import { disposeObject } from "./scene/disposeObject.ts";
 import { FirstPersonControls, EYE_HEIGHT } from "./scene/controls.ts";
 import { selectLodTier } from "./scene/distanceLod.ts";
+import { AmbientAudio } from "./scene/ambientAudio.ts";
 
 const FOV = 70;
 const NEAR = 0.1;
@@ -82,6 +83,7 @@ export class Cemetery {
   private weatherChangeAt = 0;
   private ambianceRefreshAt = 0;
   private maintainCb: (c: Colleague) => void = () => {};
+  private readonly ambientAudio = new AmbientAudio();
 
   private focusCb: (c: Colleague | null) => void = () => {};
   private focused: Colleague | null = null;
@@ -176,10 +178,17 @@ export class Cemetery {
 
   requestLock() {
     this.controls.lock();
+    // Geste utilisateur requis par les navigateurs pour démarrer l'audio.
+    this.ambientAudio.start();
   }
 
   unlock() {
     this.controls.unlock();
+  }
+
+  /** Coupe/rétablit l'ambiance sonore (panneau Ambiance). */
+  setAmbientMuted(muted: boolean) {
+    this.ambientAudio.setMuted(muted);
   }
 
   get isLocked() {
@@ -357,6 +366,7 @@ export class Cemetery {
       this.weather = WEATHER_OPTIONS[Math.floor(Math.random() * WEATHER_OPTIONS.length)];
       this.weatherChangeAt = now + (5 + Math.random() * 10) * 60_000;
       this.applyAmbiance(this.ambiance);
+      this.ambientAudio.setWeather(this.weather);
     }
     if (now >= this.ambianceRefreshAt) {
       const next = this.resolveAmbiance();

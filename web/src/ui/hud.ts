@@ -18,6 +18,7 @@ const ambianceBtn = document.getElementById("ambiance-btn") as HTMLButtonElement
 const ambiancePanel = document.getElementById("ambiance-panel") as HTMLDivElement;
 const timeSelect = document.getElementById("ambiance-time") as HTMLSelectElement;
 const seasonSelect = document.getElementById("ambiance-season") as HTMLSelectElement;
+const soundCheckbox = document.getElementById("ambiance-sound") as HTMLInputElement;
 const addGraveBtn = document.getElementById("add-grave-btn") as HTMLButtonElement;
 const closeCompanyBtn = document.getElementById("close-company-btn") as HTMLButtonElement;
 const backRoadBtn = document.getElementById("back-road-btn") as HTMLButtonElement;
@@ -199,6 +200,7 @@ function setupAmbianceControls(cemetery: Cemetery) {
   };
   timeSelect.addEventListener("change", applyAmbiance);
   seasonSelect.addEventListener("change", applyAmbiance);
+  soundCheckbox.addEventListener("change", () => cemetery.setAmbientMuted(!soundCheckbox.checked));
 }
 
 /** Libère le pointer lock, appelle fn, puis le réacquiert à la fermeture via onClose. */
