@@ -14,6 +14,7 @@ import { disposeObject } from "./scene/disposeObject.ts";
 import { FirstPersonControls, EYE_HEIGHT } from "./scene/controls.ts";
 import { selectLodTier } from "./scene/distanceLod.ts";
 import { AmbientAudio } from "./scene/ambientAudio.ts";
+import { ShadowIntegration } from "./scene/shadowIntegration.ts";
 
 const FOV = 70;
 const NEAR = 0.1;
@@ -53,6 +54,7 @@ export class Cemetery {
   private readonly lighting = new Lighting();
   private readonly decor = new Decor();
   private readonly controls: FirstPersonControls;
+  private readonly shadowIntegration: ShadowIntegration;
   private readonly groundMat = new THREE.MeshStandardMaterial({ roughness: 1 });
   private readonly ground: THREE.Mesh;
   private readonly gravesGroup = new THREE.Group();
@@ -111,6 +113,7 @@ export class Cemetery {
     this.renderer.toneMappingExposure = TONE_MAPPING_EXPOSURE;
 
     this.camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, NEAR, FAR);
+    this.shadowIntegration = new ShadowIntegration(this.camera, this.scene, this.renderer, this.lighting.key);
 
     this.sky = createSky();
     this.hdriSky = new HdriSky(this.renderer);
@@ -283,6 +286,7 @@ export class Cemetery {
     fog.color.setHex(effective.fogColor);
     fog.density = effective.fogDensity;
     this.lighting.apply(effective);
+    this.shadowIntegration.applyAmbiance(effective.keyLightColor, effective.keyLightIntensity, this.lighting.sunDirection);
     this.groundMat.color.setHex(effective.groundColor);
     // La forêt/les arches sont portées par world.ts ; ici, seulement les particules.
     this.decor.build(effective, PARTICLE_HALF, { structures: false });
@@ -436,12 +440,9 @@ export class Cemetery {
     this.maybeRefreshAmbiance();
     const t = this.clock.elapsedTime;
     const cam = this.camera.position;
-    // Shadow map recalculée seulement si la cible a changé de texel ou que la
-    // scène a bougé (chunk/tombe) — autoUpdate = false, voir constructeur.
+    // Shadow map recalculée seulement au besoin — cache géré par ShadowIntegration.
     const shadowTargetMoved = this.lighting.followCamera(cam.x, cam.z);
-    if (shadowTargetMoved || this.streamer.consumeSceneDirty()) {
-      this.renderer.shadowMap.needsUpdate = true;
-    }
+    this.shadowIntegration.tick(shadowTargetMoved || this.streamer.consumeSceneDirty(), this.scene);
     for (const chunk of this.streamer.loadedChunks.values()) {
       const field = chunk.grass;
       if (field) {

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { Ambiance } from "../ambiance.ts";
+import { clampAmbientFloor, type SunDirection } from "./shadows.ts";
 
 const SHADOW_MAP_SIZE = 2048;
 const SHADOW_NEAR = 1;
@@ -56,13 +57,21 @@ export class Lighting {
     scene.add(this.hemi, this.ambient, this.key, this.key.target, this.celestial);
   }
 
+  /** Direction courante du soleil/lune, DU sol VERS l'astre (voir `Ambiance.keyLightDir`) —
+   *  consommée par le rig CSM optionnel (`scene/shadows.ts`, mission 13). */
+  get sunDirection(): SunDirection {
+    return [this.direction.x, this.direction.y, this.direction.z];
+  }
+
   apply(a: Ambiance) {
     this.hemi.color.setHex(a.hemiSky);
     this.hemi.groundColor.setHex(a.hemiGround);
     this.hemi.intensity = a.hemiIntensity;
 
     this.ambient.color.setHex(a.ambientColor);
-    this.ambient.intensity = a.ambientIntensity;
+    // Plancher anti-ombre-noire (Pillar B LAAS, mission 13/shadows.ts) : n'affecte
+    // aucune ambiance existante (toutes ≥ 0.3), filet de sécurité pour l'avenir.
+    this.ambient.intensity = clampAmbientFloor(a.ambientIntensity);
 
     this.direction.set(...a.keyLightDir).normalize();
     const dir = this.direction.clone().multiplyScalar(KEY_LIGHT_DISTANCE);
