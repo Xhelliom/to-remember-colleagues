@@ -9,13 +9,20 @@ import { hideMenu, refreshMenu, setMenuUser, setupMenu, showMenu } from "./ui/me
 import { hideHud, setupHud, showWorldHud } from "./ui/hud.ts";
 import { buildClusterBiome, graveAnchors, EARTH_RADIUS } from "./scene/biomes/clairiere/builder.ts";
 import { GrassField } from "./scene/grassField.ts";
+import { getAmbiance, resolveTimeKey, type SeasonKey } from "./ambiance.ts";
 import type { ClusterInfo } from "./procedural.ts";
 import type { Frame } from "./worldLayout.ts";
 
 const loader = document.getElementById("loader") as HTMLDivElement;
 const canvas = document.getElementById("scene") as HTMLCanvasElement;
 
-// Bypass complet du routing pour l'itération visuelle du biome de cluster.
+// Bypass complet du routing pour l'itération visuelle du biome de cluster — sert
+// aussi de scène de HARNAIS déterministe pour les missions du rework herbe/arbres
+// (plan/README.md § Infra de test partagée) : `?cam=x,y,z,yaw,pitch[,fov]` place la
+// caméra, `?seed=N` fait varier le layout (déterministe), `?T=heures` recolore
+// l'ambiance (défaut = comportement actuel si absent). `?preset=low|high|ultra` est
+// lu tel quel par les futures missions (herbe/arbres/pierre) via URLSearchParams —
+// rien à câbler ici tant qu'aucun chemin alternatif n'existe.
 // Usage : ?testCluster=42  (la valeur est un seed pour de futures variations)
 const testClusterSeed = new URLSearchParams(window.location.search).get("testCluster");
 if (testClusterSeed !== null) {
@@ -24,9 +31,89 @@ if (testClusterSeed !== null) {
   void startApp();
 }
 
-/** Scène de test isolée : 1 cluster, caméra fixe — pas de Cemetery, pas d'auth. */
+const PERF_FRAME_WINDOW = 30; // frames sur lesquelles la fps est moyennée (glissant)
+const READY_FRAME_COUNT = 10; // nb de frames avant de considérer la scène stable (__ready)
+const HARNESS_SUN_DISTANCE = 16; // distance soleil↔cible, calée sur le rig d'origine (3,16,2)
+const HARNESS_SEASON: SeasonKey = "summer"; // fixe → déterminisme indépendant de la date du run
+
+type PerfSnapshot = { drawCalls: number; triangles: number; programs: number; fps: number };
+/** Fenêtre enrichie des hooks dev/e2e — jamais présente en prod (voir installHarnessHooks). */
+type HarnessWindow = Window & { __perf?: PerfSnapshot; __ready?: Promise<void> };
+
+/**
+ * Câble `window.__perf`/`window.__ready` (dev/e2e uniquement — voir
+ * plan/01-harness.md). Renvoie le tick à appeler à chaque frame du rendu.
+ */
+function installHarnessHooks(renderer: THREE.WebGLRenderer): () => void {
+  const w = window as unknown as HarnessWindow;
+  let resolveReady: () => void = () => {};
+  w.__ready = new Promise((r) => { resolveReady = r; });
+  let frames = 0;
+  let last = performance.now();
+  const deltas: number[] = [];
+  return () => {
+    const now = performance.now();
+    deltas.push(now - last);
+    last = now;
+    if (deltas.length > PERF_FRAME_WINDOW) deltas.shift();
+    const avgDelta = deltas.reduce((s, d) => s + d, 0) / deltas.length;
+    w.__perf = {
+      drawCalls: renderer.info.render.calls,
+      triangles: renderer.info.render.triangles,
+      programs: renderer.info.programs?.length ?? 0,
+      fps: avgDelta > 0 ? 1000 / avgDelta : 0,
+    };
+    frames++;
+    if (frames === READY_FRAME_COUNT) resolveReady();
+  };
+}
+
+/** Applique une pose caméra `x,y,z,yaw,pitch[,fov]` (voir e2e/helpers/harness.ts). */
+function applyCamPose(camera: THREE.PerspectiveCamera, raw: string): void {
+  const [x, y, z, yaw, pitch, fov] = raw.split(",").map(Number);
+  if ([x, y, z, yaw, pitch].some((n) => Number.isNaN(n))) return;
+  camera.position.set(x, y, z);
+  camera.rotation.order = "YXZ";
+  camera.rotation.set(pitch, yaw, 0);
+  if (!Number.isNaN(fov)) {
+    camera.fov = fov;
+    camera.updateProjectionMatrix();
+  }
+}
+
+/** Recolore l'éclairage du harnais selon l'heure `T` (0–24h), en réutilisant les
+ *  palettes d'ambiance.ts — n'est appliqué que si `?T=` est fourni (comportement
+ *  par défaut inchangé sinon, voir plan/01-harness.md). */
+function applyTimeOverride(
+  hour: number,
+  scene: THREE.Scene,
+  fog: THREE.FogExp2,
+  ambientLight: THREE.AmbientLight,
+  hemiLight: THREE.HemisphereLight,
+  sun: THREE.DirectionalLight,
+  sunTarget: THREE.Object3D,
+): void {
+  const a = getAmbiance(resolveTimeKey("auto", hour), HARNESS_SEASON);
+  scene.background = new THREE.Color(a.skyTop);
+  fog.color.setHex(a.fogColor);
+  fog.density = a.fogDensity;
+  ambientLight.color.setHex(a.ambientColor);
+  ambientLight.intensity = a.ambientIntensity;
+  hemiLight.color.setHex(a.hemiSky);
+  hemiLight.groundColor.setHex(a.hemiGround);
+  hemiLight.intensity = a.hemiIntensity;
+  sun.color.setHex(a.keyLightColor);
+  sun.intensity = a.keyLightIntensity;
+  const [dx, dy, dz] = a.keyLightDir;
+  sun.position.set(dx * HARNESS_SUN_DISTANCE, dy * HARNESS_SUN_DISTANCE, dz * HARNESS_SUN_DISTANCE)
+    .add(sunTarget.position);
+}
+
+/** Scène de test isolée : 1 cluster, caméra fixe — pas de Cemetery, pas d'auth.
+ *  Sert aussi de scène de harnais déterministe (?cam/?seed/?T, voir plus haut). */
 async function runClusterTest(c: HTMLCanvasElement) {
   loader.classList.add("hidden");
+  const harnessParams = new URLSearchParams(window.location.search);
 
   // preserveDrawingBuffer : permet au test E2E de lire le rendu via toDataURL
   // (évite le screenshot Playwright, très lent sous swiftshader headless).
@@ -49,11 +136,15 @@ async function runClusterTest(c: HTMLCanvasElement) {
   // Œil 1,7 m au débouché de l'allée, regardant le centre de la clairière (~9 m).
   camera.position.set(0, 1.7, 0.5);
   camera.lookAt(0, 1.4, 9);
+  const camParam = harnessParams.get("cam");
+  if (camParam) applyCamPose(camera, camParam); // défaut inchangé si absent
 
   // Contraste concept : canopée/bords sombres, MAIS flaque de lumière chaude sur
   // le sol de la clairière (soleil plongeant de l'avant vers le centre + graves).
-  scene.add(new THREE.AmbientLight(0x7a7060, 0.16)); // légère chaleur → lève la terre
-  scene.add(new THREE.HemisphereLight(0x9fb2c0, 0x221c12, 0.24));
+  const ambientLight = new THREE.AmbientLight(0x7a7060, 0.16); // légère chaleur → lève la terre
+  scene.add(ambientLight);
+  const hemiLight = new THREE.HemisphereLight(0x9fb2c0, 0x221c12, 0.24);
+  scene.add(hemiLight);
   const sunTarget = new THREE.Object3D();
   sunTarget.position.set(0, 0, 9); // centre de la clairière
   scene.add(sunTarget);
@@ -65,6 +156,11 @@ async function runClusterTest(c: HTMLCanvasElement) {
   sun.shadow.camera.near = 1;
   sun.shadow.camera.far = 60;
   scene.add(sun);
+
+  const timeParam = harnessParams.get("T");
+  if (timeParam !== null && !Number.isNaN(Number(timeParam))) {
+    applyTimeOverride(Number(timeParam), scene, scene.fog as THREE.FogExp2, ambientLight, hemiLight, sun, sunTarget);
+  }
 
   // Flaque de lumière chaude sur le sol de la clairière (signature du concept :
   // sol ensoleillé sous une canopée sombre).
@@ -85,7 +181,10 @@ async function runClusterTest(c: HTMLCanvasElement) {
   // approach = (0,0) : le visiteur (caméra) arrive de l'entrée vers le centre.
   const cluster: ClusterInfo = { x: 0, z: 9, chunk: 0, propKind: "flat", approach: { x: 0, z: 0 } };
   const frame: Frame = { entrance: { x: 0, z: 0 }, rotY: 0 };
-  const biome = await buildClusterBiome(cluster, frame, undefined, "test-company");
+  // ?seed= fait varier le layout de façon déterministe (défaut inchangé si absent).
+  const seedParam = harnessParams.get("seed");
+  const companyId = seedParam !== null ? `harness-${seedParam}` : "test-company";
+  const biome = await buildClusterBiome(cluster, frame, undefined, companyId);
   scene.add(biome);
 
   // Tombes stand-in aux ancres possédées par le biome (arc face au visiteur).
@@ -101,7 +200,7 @@ async function runClusterTest(c: HTMLCanvasElement) {
   // centrale (l'allée reste en terre nue jusqu'au fer à cheval).
   const PATH_HALF = 1.4;
   const grass = await GrassField.create(
-    "test-company", 2, frame, 16, 16, 0, 16, undefined,
+    companyId, 2, frame, 16, 16, 0, 16, undefined,
     {
       heightScale: 1.9,
       exclude: (x, z) => {
@@ -127,10 +226,14 @@ async function runClusterTest(c: HTMLCanvasElement) {
   composer.addPass(new RenderPass(scene, camera));
   composer.addPass(new ShaderPass(GRADE_SHADER));
 
+  // window.__perf/__ready : dev/e2e uniquement, jamais en prod (voir installHarnessHooks).
+  const tickHarness = import.meta.env.DEV ? installHarnessHooks(renderer) : () => {};
+
   const clock = new THREE.Clock();
   renderer.setAnimationLoop(() => {
     grass?.update(clock.getElapsedTime());
     composer.render();
+    tickHarness();
   });
 }
 
