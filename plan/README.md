@@ -74,14 +74,14 @@ graph TD
 | 01 | harness | S | ✅ done (15 tests · e2e écrits, exécution déférée) |
 | 02 | vent | S | ✅ done (12 tests · `scene/wind.ts`) |
 | 03 | noise-bake | S | ✅ done (7 tests · `scene/noiseBake.ts`) |
-| 04 | herbe-geo-shader | L | ⬜ |
-| 05 | herbe-ring-lod | M | ⬜ |
-| 06 | pierre-tombes | L | ⬜ |
-| 07 | dressing-deadfall | M | ⬜ |
-| 08 | arbres-grammaire | L | ⬜ |
-| 09 | arbres-cards-atlas | L | ⬜ |
+| 04 | herbe-geo-shader | L | ✅ done (8 tests · windSway→wind.ts · API GrassField inchangée) |
+| 05 | herbe-ring-lod | M | ✅ done (24 tests · **gated `GRASS_RING_ENABLED=false`** → activer + couper l'herbe par-tranche en mission 10) |
+| 06 | pierre-tombes | L | ✅ done (15 tests · stèles round/rect altérées · **rochers déco GLTF différés**) |
+| 07 | dressing-deadfall | M | ✅ done (43 tests · dressing appliqué aux stèles · deadfall builder **non placé**) |
+| 08 | arbres-grammaire | L | ✅ done (12 tests · hêtre 5052 tris hero · **pas encore rendu en scène réelle → mission 10**) |
+| 09 | arbres-cards-atlas | L | ✅ done (16 tests · −87% tris feuillage · buildTree rétro-compatible) |
 | 10 | arbres-lod-impostors | L | ⬜ |
-| 11 | understory | M | ⬜ |
+| 11 | understory | M | ✅ done (29 tests · `MeshGrower` inexistant → growSkeleton direct · lierre = fn pure) |
 | 12 | depth-prepass | M | ⬜ |
 | 13 | ombres | M | ⬜ |
 | 14 | post-ambiance-bookmarks | M | ⬜ |
