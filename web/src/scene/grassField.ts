@@ -22,8 +22,9 @@ export function shouldHaveGrass(karma: number, seasonKey: string): boolean {
 
 function grassPath(karma: number): string {
   // bermuda_01 a un problème de rendu → medium_01 pour les bons karmas
-  if (karma >= 0) return "/models/grass/grass_medium_01_2k/grass_medium_01_2k.gltf";
-  return "/models/grass/grass_medium_02_2k/grass_medium_02_2k.gltf";
+  // Modèles décimés (tools/optimize-models.sh) : ~1,5-2k tris au lieu de ~8-25k.
+  if (karma >= 0) return "/models/opt/grass/grass_medium_01_2k.glb";
+  return "/models/opt/grass/grass_medium_02_2k.glb";
 }
 
 function addWindAttr(geo: THREE.BufferGeometry): void {

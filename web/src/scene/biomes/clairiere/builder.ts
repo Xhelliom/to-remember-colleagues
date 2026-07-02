@@ -53,14 +53,16 @@ const PEBBLE_COUNT = 7;
 const PEBBLE_SCALE_MIN = 0.12;
 const PEBBLE_SCALE_RANGE = 0.18;
 
+// Modèles décimés (tools/optimize-models.sh, cf. REVUE_3D_PERF_RENDU.md) :
+// silhouette visuelle préservée, ~98 % de triangles en moins.
 const BUSH_PATHS = [
-  "/models/Bush/didelta_spinosa_2k/didelta_spinosa_2k.gltf",
-  "/models/Bush/othonna_cerarioides_2k/othonna_cerarioides_2k.gltf",
-  "/models/Bush/wild_rooibos_bush_1k/wild_rooibos_bush_1k.gltf",
+  "/models/opt/bush/didelta_spinosa_2k.glb",
+  "/models/opt/bush/othonna_cerarioides_2k.glb",
+  "/models/opt/bush/wild_rooibos_bush_1k.glb",
 ];
-const ROCK_PATH = "/models/rock/rock_01_2k/rock_01_2k.gltf";
-const TREE_PATH = "/models/tree/jacaranda_tree_1k/jacaranda_tree_1k.gltf";
-const ISLAND_TREE_PATH = "/models/tree/island_tree_02_2k/island_tree_02_2k.gltf";
+const ROCK_PATH = "/models/opt/rock/rock_01_2k.glb";
+const TREE_PATH = "/models/opt/tree/jacaranda_tree_1k.glb";
+const ISLAND_TREE_PATH = "/models/opt/tree/island_tree_02_2k.glb";
 const EARTH_TEX = "/textures/ground/rocky_trail_2k/textures/rocky_trail_diff_2k.jpg";
 
 // --- Texture ---

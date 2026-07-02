@@ -2,6 +2,7 @@
 // L'herbe en touffes est gérée par grassField.ts (InstancedMesh GPU).
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import type { SeasonKey } from "../ambiance.ts";
 import { hashSeed } from "../procedural.ts";
 
@@ -10,8 +11,9 @@ const GROUND_HEIGHT = 0.01; // décollement minimal pour éviter le z-fighting
 const SPLAT_RES = 64;
 const TEX_ANISOTROPY = 8; // netteté en vue rasante (permanente en 1ère personne)
 
-// Cache GLTF partagé avec grassField.ts (touffes d'herbe).
-const gltfLoader = new GLTFLoader();
+// Cache GLTF partagé avec grassField.ts (touffes d'herbe). Les modèles décimés
+// (tools/optimize-models.sh, web/public/models/opt/) sont compressés meshopt.
+const gltfLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
 const gltfCache = new Map<string, Promise<THREE.Group>>();
 
 export function loadGltf(path: string): Promise<THREE.Group> {

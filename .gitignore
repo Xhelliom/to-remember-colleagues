@@ -8,8 +8,11 @@ pgdata/
 web/.vite/
 server/drizzle/meta/_journal.tmp
 
-# Assets 3D lourds (textures + modèles Poly Haven, ~339 Mo)
-web/public/models/
+# Assets 3D lourds (textures + modèles Poly Haven, ~339 Mo) — sources brutes non
+# versionnées. Seule la version décimée/compressée (tools/optimize-models.sh)
+# est commitée, dans web/public/models/opt/ (quelques Mo).
+web/public/models/*
+!web/public/models/opt/
 web/public/textures/
 web/public/hdri/
 temp/

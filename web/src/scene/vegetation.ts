@@ -16,10 +16,11 @@ const CLUSTER_ROCK_STACK = 4; // empilement de rochers = fausse falaise
 const CLUSTER_ROCK_BASE_SCALE = 1.4;
 const CLUSTER_ROCK_SCALE_DECAY = 0.18; // rétrécit à chaque rocher empilé
 
+// Modèles décimés (tools/optimize-models.sh) : ~20k tris au lieu de 1-2M.
 function treePath(companyId: string): string {
   return hashSeed(companyId + ":trees") % 2 === 0
-    ? "/models/tree/island_tree_02_2k/island_tree_02_2k.gltf"
-    : "/models/tree/tree_small_02_4k/tree_small_02_4k.gltf";
+    ? "/models/opt/tree/island_tree_02_2k.glb"
+    : "/models/opt/tree/tree_small_02_4k.glb";
 }
 
 type SubMesh = { geo: THREE.BufferGeometry; mat: THREE.Material };
@@ -127,7 +128,7 @@ export class VegetationInstances {
   ): Promise<VegetationInstances | null> {
     const [treeRes, rockRes] = await Promise.allSettled([
       loadGltf(treePath(companyId)),
-      loadGltf("/models/rock/rock_01_2k/rock_01_2k.gltf"),
+      loadGltf("/models/opt/rock/rock_01_2k.glb"),
     ]);
 
     const halfWidth = plotWidth / 2 - BORDER_MARGIN;
