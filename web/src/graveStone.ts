@@ -10,6 +10,7 @@
 import * as THREE from "three";
 import type { GraveAxes } from "./graveAxes.ts";
 import { crackThreshold, sampleWeathering, type WeatheringParams } from "./scene/stone.ts";
+import { dressingFor, type Dressing } from "./scene/dressing.ts";
 
 // Ré-export pratique : `e2e/gravestone.spec.ts` rend une stèle dans un canvas isolé
 // (sans passer par main.ts/l'auth/la DB) et a besoin de la MÊME instance de `three`
@@ -99,6 +100,34 @@ const STELE_SATURATION = 0.14;
 const STELE_LIGHTNESS_MIN = 0.32;
 const STELE_LIGHTNESS_RANGE = 0.24;
 
+// --- Habillage (mousse/lichen/coulures, mission 07) — pilote la couleur, pas
+// de géométrie supplémentaire. `upness` = hauteur normalisée sur la stèle
+// (`v`, ci-dessous : base ombragée → sommet exposé), `cavity` = `cavityAO`
+// déjà produit par `sampleWeathering`. Rend l'entretien ET le karma (votes)
+// lisibles d'un coup d'œil, sans jamais masquer totalement la pierre dessous. ---
+const DRESSING_MOSS_COLOR = 0x4f6b34; // vert mousse, creux ombragés
+const DRESSING_LICHEN_COLOR = 0xb7c48a; // lichen pâle, faces exposées
+const DRESSING_STREAK_COLOR = 0x241f19; // coulures sombres (eau stagnante)
+const DRESSING_MAX_BLEND = 0.75; // jamais à 100% : la pierre reste visible dessous
+const STREAK_MAX_BLEND = 0.4; // coulures plus discrètes que mousse/lichen
+
+/** Blende l'habillage (mousse/lichen/coulures) dans `color`, in place — la
+ *  teinte de chaque couche est décalée par `dressing.hueBias` (karma). */
+function applyDressing(color: THREE.Color, dressing: Dressing): void {
+  if (dressing.mossIntensity > 0) {
+    const moss = new THREE.Color(DRESSING_MOSS_COLOR).offsetHSL(dressing.hueBias, 0, 0);
+    color.lerp(moss, dressing.mossIntensity * DRESSING_MAX_BLEND);
+  }
+  if (dressing.lichenIntensity > 0) {
+    const lichen = new THREE.Color(DRESSING_LICHEN_COLOR).offsetHSL(dressing.hueBias, 0, 0);
+    color.lerp(lichen, dressing.lichenIntensity * DRESSING_MAX_BLEND);
+  }
+  if (dressing.streakIntensity > 0) {
+    const streak = new THREE.Color(DRESSING_STREAK_COLOR).offsetHSL(dressing.hueBias, 0, 0);
+    color.lerp(streak, dressing.streakIntensity * STREAK_MAX_BLEND);
+  }
+}
+
 export type Gravestone = {
   /** Géométrie unitaire (hw=0.5, hauteur=1) — à mettre à l'échelle par mesh, comme
    *  les géométries partagées de graves.ts (`mesh.scale.set(width, height, 1)`). */
@@ -139,6 +168,7 @@ export function buildGravestone(axes: GraveAxes, seed: number, rounded = true): 
 
     const lightness = STELE_LIGHTNESS_MIN + (1 - s.cavityAO) * STELE_LIGHTNESS_RANGE;
     color.setHSL(STELE_HUE_BASE + hueBias + s.hue * STELE_HUE_RANGE, STELE_SATURATION, lightness);
+    applyDressing(color, dressingFor({ upness: v, cavity: s.cavityAO, maintenance: axes.maintenance, votes: axes.vote }));
     colors[i * 3] = color.r;
     colors[i * 3 + 1] = color.g;
     colors[i * 3 + 2] = color.b;

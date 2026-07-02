@@ -51,6 +51,34 @@ describe("buildGravestone — monotonie de l'entretien (mesurée sur le champ)",
   });
 });
 
+describe("buildGravestone — habillage (mission 07 : mousse/lichen/coulures)", () => {
+  const averageGreenness = (a: ReturnType<typeof buildGravestone>): number => {
+    const colors = a.geometry.getAttribute("color").array;
+    let g = 0, rb = 0;
+    for (let i = 0; i < colors.length; i += 3) {
+      g += colors[i + 1];
+      rb += colors[i] + colors[i + 2];
+    }
+    return g / (rb || 1);
+  };
+
+  it("maintenance ↓ ⇒ la stèle est visiblement plus verte (mousse/lichen)", () => {
+    for (const seed of [1, 7, 99]) {
+      const clean = buildGravestone(axes({ maintenance: 0.95 }), seed);
+      const neglected = buildGravestone(axes({ maintenance: 0.05 }), seed);
+      expect(averageGreenness(neglected)).toBeGreaterThan(averageGreenness(clean));
+    }
+  });
+
+  it("mêmes (axes, seed) → habillage identique (déterminisme déjà couvert par la géométrie)", () => {
+    const a = buildGravestone(axes({ maintenance: 0.1 }), 5);
+    const b = buildGravestone(axes({ maintenance: 0.1 }), 5);
+    expect(Array.from(a.geometry.getAttribute("color").array)).toEqual(
+      Array.from(b.geometry.getAttribute("color").array),
+    );
+  });
+});
+
 describe("weatheringParamsFromAxes — votes extrêmes", () => {
   it("hanté vs paradisiaque → paramètres d'altération distincts", () => {
     const haunted = weatheringParamsFromAxes(axes({ vote: -1 }));
