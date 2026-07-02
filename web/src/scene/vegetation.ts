@@ -7,10 +7,15 @@ import { hashSeed } from "../procedural.ts";
 import { toWorld, type Frame } from "../worldLayout.ts";
 import { loadGltf } from "./grass.ts";
 import type { TerrainChunk } from "./terrain.ts";
+import { addWindAttr, applySway } from "./windSway.ts";
 
 const TREE_DENSITY = 0.004; // arbres par m², calée sur la densité visuelle précédente
 const ROCK_DENSITY = 0.0028;
 const BORDER_MARGIN = 1.5; // retrait des murs latéraux et des bouts de chemin
+// Balancement plus lent/ample que l'herbe (frondaisons, pas des brins fins) ;
+// un seul programme compilé pour tous les arbres, temps partagé indépendant de l'herbe.
+const TREE_SWAY = { amp1: 0.15, freq1: 0.5, amp2: 0.08, freq2: 0.9, cacheKey: "treeWind" };
+const sharedTreeTime = { value: 0 };
 
 // Modèles décimés (tools/optimize-models.sh) : ~20k tris au lieu de 1-2M.
 function treePath(companyId: string): string {
@@ -74,16 +79,40 @@ function buildInstancedMeshes(srcs: SubMesh[], matrices: THREE.Matrix4[], count:
   });
 }
 
+/** Comme buildInstancedMeshes, avec un balancement au vent (arbres uniquement,
+ *  pas les rochers). Le matériau balancé est cloné (propre, à disposer) — pas
+ *  le matériau GLTF en cache. */
+function buildSwayingInstancedMeshes(
+  srcs: SubMesh[],
+  matrices: THREE.Matrix4[],
+  ownedMats: THREE.Material[],
+): THREE.InstancedMesh[] {
+  return srcs.map(({ geo, mat }) => {
+    addWindAttr(geo);
+    const swayMat = applySway(mat, sharedTreeTime, TREE_SWAY);
+    ownedMats.push(swayMat);
+    const m = new THREE.InstancedMesh(geo, swayMat, matrices.length);
+    m.castShadow = true;
+    m.userData.maxCount = matrices.length;
+    matrices.forEach((mat4, i) => m.setMatrixAt(i, mat4));
+    m.instanceMatrix.needsUpdate = true;
+    m.computeBoundingSphere();
+    return m;
+  });
+}
+
 /** Arbres et rochers instanciés d'une tranche de cimetière. */
 export class VegetationInstances {
   readonly meshes: THREE.InstancedMesh[];
   readonly center: { x: number; z: number };
   /** Palier de LOD courant (scene/distanceLod.ts) ; 0 = visible au chargement. */
   lodTier = 0;
+  private readonly swayMats: THREE.Material[];
 
-  private constructor(meshes: THREE.InstancedMesh[], center: { x: number; z: number }) {
+  private constructor(meshes: THREE.InstancedMesh[], center: { x: number; z: number }, swayMats: THREE.Material[]) {
     this.meshes = meshes;
     this.center = center;
+    this.swayMats = swayMats;
   }
 
   /**
@@ -113,12 +142,13 @@ export class VegetationInstances {
     const rockCount = Math.max(1, Math.round(ROCK_DENSITY * area));
 
     const meshes: THREE.InstancedMesh[] = [];
+    const swayMats: THREE.Material[] = [];
 
     if (treeRes.status === "fulfilled") {
       const srcs = extractSubMeshes(treeRes.value);
       if (srcs.length) {
         const matrices = buildPlacementMatrices(companyId, ":trees", treeCount, frame, halfWidth, zLo, zHi, terrain, 0.8, 0.6);
-        meshes.push(...buildInstancedMeshes(srcs, matrices, matrices.length));
+        meshes.push(...buildSwayingInstancedMeshes(srcs, matrices, swayMats));
       }
     }
 
@@ -131,11 +161,18 @@ export class VegetationInstances {
     }
 
     if (!meshes.length) return null;
-    return new VegetationInstances(meshes, toWorld(frame, 0, (zStart + zEnd) / 2));
+    return new VegetationInstances(meshes, toWorld(frame, 0, (zStart + zEnd) / 2), swayMats);
+  }
+
+  /** Avance le balancement des arbres (indépendant de l'herbe). */
+  update(time: number) {
+    sharedTreeTime.value = time;
   }
 
   dispose() {
-    // Géométries clonées → on libère ; matériaux GLTF en cache → non
+    // Géométries clonées → on libère ; matériaux GLTF en cache (rochers) → non ;
+    // matériaux balancés (arbres) clonés en propre → à disposer.
     for (const m of this.meshes) m.geometry.dispose();
+    for (const m of this.swayMats) m.dispose();
   }
 }

@@ -7,6 +7,7 @@ import { hashSeed } from "../procedural.ts";
 import { toWorld, type Frame } from "../worldLayout.ts";
 import { loadGltf } from "./grass.ts";
 import type { TerrainChunk } from "./terrain.ts";
+import { addWindAttr, applySway } from "./windSway.ts";
 
 export const MAX_BLADES = 20_000; // plafond par tranche (perf InstancedMesh)
 const BLADE_DENSITY = 8; // brins par m², calée sur la densité visuelle précédente
@@ -14,6 +15,7 @@ const BORDER_MARGIN = 1.2; // dégagement des murs latéraux et des bouts de che
 
 // Uniforme de temps partagé : tous les champs utilisent le même programme compilé.
 const sharedTime = { value: 0 };
+const GRASS_SWAY = { amp1: 0.08, freq1: 1.3, amp2: 0.04, freq2: 2.5, cacheKey: "grassWind" };
 
 /** Karma et saison autorisant l'herbe (sans herbe en hiver ou karma très négatif). */
 export function shouldHaveGrass(karma: number, seasonKey: string): boolean {
@@ -27,46 +29,18 @@ function grassPath(karma: number): string {
   return "/models/opt/grass/grass_medium_02_2k.glb";
 }
 
-function addWindAttr(geo: THREE.BufferGeometry): void {
-  const pos = geo.getAttribute("position") as THREE.BufferAttribute;
-  geo.computeBoundingBox();
-  const yMin = geo.boundingBox!.min.y;
-  const yRange = geo.boundingBox!.max.y - yMin || 1;
-  const wind = new Float32Array(pos.count);
-  for (let i = 0; i < pos.count; i++) wind[i] = (pos.getY(i) - yMin) / yRange;
-  geo.setAttribute("aWind", new THREE.BufferAttribute(wind, 1));
-}
-
-function windMat(src: THREE.MeshStandardMaterial): THREE.MeshStandardMaterial {
-  const mat = src.clone();
-  // ponytail: cache key commun → un seul programme compilé pour tous les champs
-  mat.customProgramCacheKey = () => "grassWind";
-  mat.onBeforeCompile = (shader) => {
-    shader.uniforms.uTime = sharedTime;
-    shader.vertexShader =
-      "attribute float aWind;\nuniform float uTime;\n" + shader.vertexShader;
-    shader.vertexShader = shader.vertexShader.replace(
-      "#include <begin_vertex>",
-      `#include <begin_vertex>
-       float _sw = aWind * (sin(uTime * 1.3) * 0.08 + sin(uTime * 2.5 + position.z) * 0.04);
-       transformed.x += _sw;`,
-    );
-  };
-  return mat;
-}
-
 /** Champ d'herbe instancié à partir de touffes GLTF Poly Haven. */
 export class GrassField {
   readonly mesh: THREE.InstancedMesh;
   readonly center: { x: number; z: number };
   readonly bladeCount: number;
-  private readonly mat: THREE.MeshStandardMaterial;
+  private readonly mat: THREE.Material;
   /** Palier de LOD courant (scene/distanceLod.ts) ; 0 = plein détail au chargement. */
   lodTier = 0;
 
   private constructor(
     mesh: THREE.InstancedMesh,
-    mat: THREE.MeshStandardMaterial,
+    mat: THREE.Material,
     center: { x: number; z: number },
     bladeCount: number,
   ) {
@@ -110,7 +84,7 @@ export class GrassField {
 
     const geo = meshes[0].geometry.clone();
     addWindAttr(geo);
-    const mat = windMat(baseMat);
+    const mat = applySway(baseMat, sharedTime, GRASS_SWAY);
 
     const zLo = zStart <= 0 ? BORDER_MARGIN : zStart;
     const zHi = zEnd >= plotDepth ? plotDepth - BORDER_MARGIN : zEnd;

@@ -444,6 +444,7 @@ export class Cemetery {
       }
       const veg = chunk.veg;
       if (veg) {
+        veg.update(t);
         const dv = Math.hypot(veg.center.x - cam.x, veg.center.z - cam.z);
         // Seuil calé sur CHUNK_UNLOAD_RADIUS : visible tant que le chunk est chargé
         // (un seuil plus court laissait une zone morte, chunk chargé mais invisible).
