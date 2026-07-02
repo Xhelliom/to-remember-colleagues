@@ -11,6 +11,7 @@ import { seededRandom } from "../../graves.ts";
 import { hashSeed } from "../../procedural.ts";
 import { addWindWeightAttribute, applyWind, SOFT_TREE_WIND_POOL } from "../wind.ts";
 import { ATLAS_GRID } from "./atlasCapture.ts";
+import { attachDepthPrepass, buildDepthTwinMaterial, isPrepassEnabled } from "../vegPrepass.ts";
 
 /** Granularité (m) du regroupement d'ancres en clusters — les ancres d'une
  *  même brindille (dispersées dans un rayon `leafSpread` ≈ 0,35 m autour de
@@ -247,8 +248,23 @@ export function buildFoliageCards(anchors: readonly LeafAnchor[], seed: number, 
   addWindWeightAttribute(geometry, SOFT_TREE_WIND_POOL);
   const material = buildFoliageCardsMaterial(atlasTexture);
   const mesh = new THREE.Mesh(geometry, material);
+
+  // Prepass profondeur (mission 12, `?prepass=1`) : jumeau depth-only partageant
+  // la MÊME géométrie (mêmes clusters, même vent) et le MÊME mask (map + alphaTest)
+  // que le matériau couleur — même décision de discard, cf. vegPrepass.test.ts.
+  let depthMaterial: THREE.Material | undefined;
+  if (isPrepassEnabled()) {
+    depthMaterial = buildDepthTwinMaterial({
+      pool: SOFT_TREE_WIND_POOL,
+      map: atlasTexture,
+      alphaTest: CARD_ALPHA_TEST,
+    });
+    const depthMesh = new THREE.Mesh(geometry, depthMaterial);
+    attachDepthPrepass(mesh, depthMesh);
+  }
+
   return {
     mesh, triangleCount, cardCount,
-    dispose() { geometry.dispose(); material.dispose(); },
+    dispose() { geometry.dispose(); material.dispose(); depthMaterial?.dispose(); },
   };
 }

@@ -10,6 +10,7 @@ import { toWorld, type Frame } from "../worldLayout.ts";
 import type { TerrainChunk } from "./terrain.ts";
 import { addWindWeightAttribute, applyWind, GRASS_WIND_POOL, setWindTime } from "./wind.ts";
 import { BLADE_SEGS, bladeClump, terrainNormalFromHeights } from "./grassBlade.ts";
+import { attachDepthPrepass, buildDepthTwinMaterial, isPrepassEnabled } from "./vegPrepass.ts";
 
 export const MAX_CLUMPS = 4_000; // plafond d'instances (touffes) par tranche — perf InstancedMesh
 const CLUMP_DENSITY = 1.6;       // touffes par m² (chaque touffe fusionne plusieurs brins, cf. BLADES_PER_CLUMP)
@@ -156,6 +157,9 @@ export class GrassField {
   /** Nombre d'instances (touffes) — nom conservé pour l'API consommée par cemetery.ts. */
   readonly bladeCount: number;
   private readonly mat: THREE.Material;
+  /** Jumeau depth-only du prepass (mission 12, `?prepass=1`) — `undefined` si
+   *  le flag est désactivé (défaut, comportement actuel inchangé). */
+  private readonly depthMat?: THREE.Material;
   /** Palier de LOD courant (scene/distanceLod.ts) ; 0 = plein détail au chargement. */
   lodTier = 0;
 
@@ -164,11 +168,13 @@ export class GrassField {
     mat: THREE.Material,
     center: { x: number; z: number },
     bladeCount: number,
+    depthMat?: THREE.Material,
   ) {
     this.mesh = mesh;
     this.mat = mat;
     this.center = center;
     this.bladeCount = bladeCount;
+    this.depthMat = depthMat;
   }
 
   static async create(
@@ -212,7 +218,20 @@ export class GrassField {
     placeGrassInstances(mesh, clumpCount, rand, frame, halfWidth, zLo, zHi, heightAt, heightScale, opts?.exclude);
     mesh.computeBoundingSphere();
 
-    return new GrassField(mesh, mat, center, clumpCount);
+    // Prepass profondeur (mission 12, `?prepass=1`) : jumeau depth-only, MÊME
+    // géométrie et MÊME matrice d'instance que `mesh` (partagée, pas copiée) —
+    // seul le vent doit matcher en position (l'herbe n'a pas de mask/alphaTest,
+    // cf. vegPrepass.test.ts). Attaché comme enfant : aucun appelant (chunkMeshes.ts,
+    // worldStreamer.ts) n'a besoin d'être modifié, hors partition de cette mission.
+    const depthMat = isPrepassEnabled() ? buildDepthTwinMaterial({ pool: GRASS_WIND_POOL, seedOffset: seed % 1000 }) : undefined;
+    if (depthMat) {
+      const depthMesh = new THREE.InstancedMesh(geo, depthMat, clumpCount);
+      depthMesh.instanceMatrix = mesh.instanceMatrix;
+      depthMesh.computeBoundingSphere();
+      attachDepthPrepass(mesh, depthMesh);
+    }
+
+    return new GrassField(mesh, mat, center, clumpCount, depthMat);
   }
 
   /** Avance le champ de vent partagé (cf. wind.ts — une seule horloge pour herbe et arbres). */
@@ -223,5 +242,6 @@ export class GrassField {
   dispose() {
     this.mesh.geometry.dispose();
     this.mat.dispose();
+    this.depthMat?.dispose();
   }
 }
