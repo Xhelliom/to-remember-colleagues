@@ -101,7 +101,24 @@
   let cloudSmooth = q.get("smooth") === "1";           // cloud : ombrage lissé
   let barkColor = q.get("bark") ? parseInt(q.get("bark"), 16) : undefined; // ex ?bark=6b5642
   const state = { ...DEFAULTS };
-  try { if (q.get("p")) Object.assign(state, JSON.parse(q.get("p"))); } catch {}
+  // `p` peut être une config AUTO-SUFFISANTE (mode + forme + couleur + lissé +
+  // params, y compris `branchesPerLevel`) : on extrait les options de rendu et
+  // on convertit branchesPerLevel → branchesL1/2/3 avant de fusionner l'espèce.
+  try {
+    if (q.get("p")) {
+      const parsed = JSON.parse(q.get("p"));
+      if (parsed.foliage) foliageMode = parsed.foliage;
+      if (parsed.leaf) leafShape = parsed.leaf;
+      if (parsed.smooth !== undefined) cloudSmooth = !!parsed.smooth;
+      if (parsed.bark !== undefined) barkColor = typeof parsed.bark === "string" ? parseInt(parsed.bark.replace("#", ""), 16) : parsed.bark;
+      if (Array.isArray(parsed.branchesPerLevel)) {
+        const b = parsed.branchesPerLevel;
+        parsed.branchesL1 = b[0] ?? 6; parsed.branchesL2 = b[1] ?? 4; parsed.branchesL3 = b[2] ?? 2;
+      }
+      for (const k of ["foliage", "leaf", "smooth", "bark", "branchesPerLevel"]) delete parsed[k];
+      Object.assign(state, parsed);
+    }
+  } catch {}
 
   // Reconstitue l'objet TreeSpecies (branchesPerLevel = tableau tronqué à branchLevels).
   function species() {
@@ -172,7 +189,15 @@
       `feuilles: ${s.leafCount}${s.cardCount!=null?`  cartes: ${s.cardCount}`:""}\n` +
       `hauteur: ${(lastBox.mx[1]).toFixed(1)}  largeur: ${(lastBox.mx[0]-lastBox.mn[0]).toFixed(1)}` +
       `  bas: ${lastBox.mn[1].toFixed(1)}`;
-    document.getElementById("json").value = JSON.stringify(species());
+    // Config AUTO-SUFFISANTE (copiable → re-collable dans ?p=) : options de
+    // rendu non-défaut + params d'espèce.
+    document.getElementById("json").value = JSON.stringify({
+      foliage: foliageMode,
+      ...(leafShape !== "hetre" ? { leaf: leafShape } : {}),
+      ...(cloudSmooth ? { smooth: true } : {}),
+      ...(barkColor !== undefined ? { bark: "#" + barkColor.toString(16).padStart(6, "0") } : {}),
+      ...species(),
+    });
   }
   // hooks agent/headless
   window.__build = (o = {}) => {
