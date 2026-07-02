@@ -4,17 +4,27 @@
 // paramétrique (bruit BAKÉ, mission 03 noiseBake.ts — pas de texture
 // externe) ; vent partagé (mission 02 wind.ts, pools rigide/souple).
 //
+// Mission 09 (cards/atlas) : `BuildTreeOptions.foliageMode` (optionnel,
+// défaut "mesh") bascule le feuillage sur des cartes alpha-testées bon marché
+// (foliageCards.ts) au lieu des vraies lames — signature de `buildTree`
+// INCHANGÉE pour les appelants existants (mission 11 understory, en
+// parallèle), seuls des champs optionnels sont ajoutés.
+//
 // `mountTreeHeroScene` en bas de fichier est un harnais MINIMAL réservé à
-// l'e2e (tree-hero.spec.ts) : aucun chemin de prod (main.ts) ne l'importe.
-// Il vit ici plutôt que dans un fichier séparé pour respecter la partition
-// de fichiers de la mission 08 (ne créer que skeleton/tubeMesh/leafMesh/
-// treeBuilder + tests, sans toucher main.ts/cemetery.ts partagés).
+// l'e2e (tree-hero.spec.ts / tree-cards.spec.ts) : aucun chemin de prod
+// (main.ts) ne l'importe. Il vit ici plutôt que dans un fichier séparé pour
+// respecter la partition de fichiers de la mission 08 (ne créer que
+// skeleton/tubeMesh/leafMesh/treeBuilder + tests, sans toucher
+// main.ts/cemetery.ts partagés) — la mission 09 l'étend plutôt que d'en
+// dupliquer un second, même contrainte de partition.
 import * as THREE from "three";
 import { BEECH_SPECIES, growSkeleton, type TreeSkeleton } from "./skeleton.ts";
 import { buildBarkGeometry } from "./tubeMesh.ts";
 import { buildFoliageGeometry } from "./leafMesh.ts";
 import { addWindWeightAttribute, applyWind, RIGID_TREE_WIND_POOL, setWindTime, SOFT_TREE_WIND_POOL } from "../wind.ts";
 import { bakeNoiseTextures, NOISE_SAMPLE_GLSL, type BakedNoiseTextures } from "../noiseBake.ts";
+import { buildFoliageCards } from "./foliageCards.ts";
+import { getOrCaptureFoliageAtlas } from "./atlasCapture.ts";
 
 const BARK_BASE_COLOR = 0x6b5642;
 const BARK_ROUGHNESS = 0.95;
@@ -33,18 +43,38 @@ export type TreeStats = {
   readonly totalTriangles: number;
   readonly leafCount: number;
   readonly nodeCount: number;
+  /** Nb de cartes de feuillage (mission 09) — présent seulement en mode "cards"/"hybrid". */
+  readonly cardCount?: number;
 };
 
 export type TreeBuild = {
   readonly group: THREE.Group;
   readonly bark: THREE.Mesh;
+  /** Mode "mesh"/"hybrid" : vraies feuilles. Mode "cards" : le mesh de cartes
+   *  lui-même (API stable — toujours un THREE.Mesh, jamais undefined). */
   readonly foliageMesh: THREE.Mesh;
+  /** Présent uniquement en mode "hybrid" : couche de cartes en appoint du
+   *  maillage réel (`foliageMesh`). */
+  readonly cardsMesh?: THREE.Mesh;
   readonly skeleton: TreeSkeleton;
   readonly stats: TreeStats;
   dispose(): void;
 };
 
-export type BuildTreeOptions = { readonly lod?: number };
+/** "mesh" (défaut, historique) = vraies feuilles (leafMesh.ts) ; "cards" =
+ *  cartes alpha-testées bon marché posées aux ancres (mission 09, remplace
+ *  entièrement le feuillage réel) ; "hybrid" = les deux couches superposées
+ *  (silhouette de cartes + détail de vraies feuilles), pour les arbres les
+ *  plus proches quand ils sont instanciés en masse (mission 10). */
+export type FoliageMode = "mesh" | "cards" | "hybrid";
+
+export type BuildTreeOptions = {
+  readonly lod?: number;
+  readonly foliageMode?: FoliageMode;
+  /** Requis uniquement pour la PREMIÈRE capture d'atlas (foliageMode !== "mesh") ;
+   *  ignoré une fois l'atlas mis en cache (cf. atlasCapture.ts). */
+  readonly renderer?: THREE.WebGLRenderer;
+};
 
 /** Injecte les uniforms/varyings du bruit d'écorce dans le shader — chaîné
  *  APRÈS le compile de `applyWind` (dont le clone() perd tout onBeforeCompile
@@ -88,15 +118,76 @@ function buildFoliageMaterial(): THREE.Material {
   return applyWind(base, { pool: SOFT_TREE_WIND_POOL });
 }
 
+/** Couche de feuillage assemblée (mesh + éventuelle couche cards en appoint),
+ *  quel que soit le `FoliageMode` — voir `buildFoliageLayer`. */
+type FoliageLayer = {
+  readonly mesh: THREE.Mesh;
+  readonly cardsMesh?: THREE.Mesh;
+  readonly triangleCount: number;
+  readonly leafCount: number;
+  readonly cardCount?: number;
+  dispose(): void;
+};
+
+/** Couche "vraies feuilles" (leafMesh.ts) — comportement historique, inchangé. */
+function buildMeshFoliageLayer(skeleton: TreeSkeleton, lod: number): FoliageLayer {
+  const result = buildFoliageGeometry(skeleton.anchors, lod);
+  addWindWeightAttribute(result.geometry, SOFT_TREE_WIND_POOL);
+  const material = buildFoliageMaterial();
+  const mesh = new THREE.Mesh(result.geometry, material);
+  return {
+    mesh,
+    triangleCount: result.triangleCount,
+    leafCount: skeleton.anchors.length,
+    dispose() { result.geometry.dispose(); material.dispose(); },
+  };
+}
+
+/** Couche "cartes" (mission 09, foliageCards.ts) — nécessite l'atlas déjà
+ *  capturé (ou `renderer` pour le capturer au premier appel). */
+function buildCardsFoliageLayer(skeleton: TreeSkeleton, seed: number, renderer: THREE.WebGLRenderer | undefined): FoliageLayer {
+  const atlas = getOrCaptureFoliageAtlas(renderer);
+  const cards = buildFoliageCards(skeleton.anchors, seed, atlas.texture);
+  return {
+    mesh: cards.mesh,
+    triangleCount: cards.triangleCount,
+    leafCount: skeleton.anchors.length,
+    cardCount: cards.cardCount,
+    dispose: cards.dispose,
+  };
+}
+
+/** Sélectionne la/les couche(s) de feuillage selon `mode` (API stable :
+ *  `foliageMesh` reste toujours un THREE.Mesh, quel que soit le mode). */
+function buildFoliageLayer(
+  skeleton: TreeSkeleton, seed: number, lod: number, mode: FoliageMode, renderer: THREE.WebGLRenderer | undefined,
+): FoliageLayer {
+  if (mode === "cards") return buildCardsFoliageLayer(skeleton, seed, renderer);
+  const meshLayer = buildMeshFoliageLayer(skeleton, lod);
+  if (mode === "mesh") return meshLayer;
+  // "hybrid" : silhouette de cartes + détail de vraies feuilles superposés.
+  const cardsLayer = buildCardsFoliageLayer(skeleton, seed, renderer);
+  return {
+    mesh: meshLayer.mesh,
+    cardsMesh: cardsLayer.mesh,
+    triangleCount: meshLayer.triangleCount + cardsLayer.triangleCount,
+    leafCount: meshLayer.leafCount,
+    cardCount: cardsLayer.cardCount,
+    dispose() { meshLayer.dispose(); cardsLayer.dispose(); },
+  };
+}
+
 /**
  * Construit un arbre hero unique et déterministe : `buildTree(seed)` deux
  * fois avec la même graine renvoie la même géométrie (mêmes tri-counts,
  * mêmes positions). `opts.lod` (0 = hero, plus haut = plus grossier) réduit
- * les segments radiaux de l'écorce et la densité de feuilles — API stable
- * pour la mission 09 (cards/atlas).
+ * les segments radiaux de l'écorce et la densité de feuilles. `opts.foliageMode`
+ * (mission 09) bascule le feuillage sur des cartes bon marché — défaut "mesh",
+ * comportement historique inchangé (API stable pour la mission 11).
  */
 export function buildTree(seed: number, opts: BuildTreeOptions = {}): TreeBuild {
   const lod = opts.lod ?? 0;
+  const foliageMode = opts.foliageMode ?? "mesh";
   const skeleton = growSkeleton(BEECH_SPECIES, seed);
   const noiseTex = bakeNoiseTextures(seed, NOISE_RESOLUTION);
 
@@ -105,31 +196,30 @@ export function buildTree(seed: number, opts: BuildTreeOptions = {}): TreeBuild 
   const barkMaterial = buildBarkMaterial(noiseTex);
   const bark = new THREE.Mesh(barkResult.geometry, barkMaterial);
 
-  const foliageResult = buildFoliageGeometry(skeleton.anchors, lod);
-  addWindWeightAttribute(foliageResult.geometry, SOFT_TREE_WIND_POOL);
-  const foliageMaterial = buildFoliageMaterial();
-  const foliageMesh = new THREE.Mesh(foliageResult.geometry, foliageMaterial);
+  const foliage = buildFoliageLayer(skeleton, seed, lod, foliageMode, opts.renderer);
 
   const group = new THREE.Group();
-  group.add(bark, foliageMesh);
+  group.add(bark, foliage.mesh);
+  if (foliage.cardsMesh) group.add(foliage.cardsMesh);
 
   return {
     group,
     bark,
-    foliageMesh,
+    foliageMesh: foliage.mesh,
+    cardsMesh: foliage.cardsMesh,
     skeleton,
     stats: {
       barkTriangles: barkResult.triangleCount,
-      foliageTriangles: foliageResult.triangleCount,
-      totalTriangles: barkResult.triangleCount + foliageResult.triangleCount,
-      leafCount: skeleton.anchors.length,
+      foliageTriangles: foliage.triangleCount,
+      totalTriangles: barkResult.triangleCount + foliage.triangleCount,
+      leafCount: foliage.leafCount,
       nodeCount: skeleton.nodes.length,
+      cardCount: foliage.cardCount,
     },
     dispose() {
       barkResult.geometry.dispose();
       barkMaterial.dispose();
-      foliageResult.geometry.dispose();
-      foliageMaterial.dispose();
+      foliage.dispose();
       noiseTex.dispose();
     },
   };
@@ -141,6 +231,9 @@ export type TreeHeroDemoOptions = {
   readonly seed: number;
   /** `"x,y,z,yaw,pitch[,fov]"`, même format que e2e/helpers/harness.ts. */
   readonly camPose?: string;
+  /** Mission 09 (cards/atlas) : mode de feuillage du harnais, défaut "mesh"
+   *  (comportement historique de tree-hero.spec.ts). */
+  readonly foliageMode?: FoliageMode;
 };
 
 const DEMO_GROUND_SIZE = 40;
@@ -240,7 +333,7 @@ export function mountTreeHeroScene(canvas: HTMLCanvasElement, opts: TreeHeroDemo
   addDemoLighting(scene);
   addDemoGround(scene);
 
-  const tree = buildTree(opts.seed);
+  const tree = buildTree(opts.seed, { foliageMode: opts.foliageMode, renderer });
   scene.add(tree.group);
 
   const camera = new THREE.PerspectiveCamera(DEMO_FOV, window.innerWidth / window.innerHeight, DEMO_NEAR, DEMO_FAR);

@@ -4,6 +4,8 @@
 // géométrie non indexée. Prépare la capture d'atlas de la mission 09.
 import * as THREE from "three";
 import type { LeafAnchor, Vec3 } from "./skeleton.ts";
+import { seededRandom } from "../../graves.ts";
+import { hashSeed } from "../../procedural.ts";
 
 /** Nombre de lames par ancre selon le palier de LOD (0 = hero, le plus dense). */
 const LEAVES_PER_ANCHOR_BY_LOD = [3, 2, 1, 1] as const;
@@ -11,6 +13,17 @@ const LEAF_LENGTH = 0.09; // m — feuille de hêtre stylisée
 const LEAF_WIDTH = 0.055; // m
 /** Écart angulaire entre les lames d'un même spray, autour de l'axe de pousse. */
 const SPRAY_SPREAD_ANGLE = 0.6; // rad
+
+/** Nombre de lames du bouquet synthétique de capture d'atlas (mission 09) —
+ *  dense pour bien remplir une tuile, indépendant de la densité par ancre du
+ *  feuillage réel (`LEAVES_PER_ANCHOR_BY_LOD`). */
+const ATLAS_SPRAY_LEAF_COUNT = 11;
+/** Rayon (m) du bouquet de capture — sert aussi à cadrer la caméra ortho de
+ *  `atlasCapture.ts` (mission 09), les deux doivent rester cohérents. */
+export const SPRAY_CAPTURE_RADIUS = 0.3;
+/** Décalage en profondeur (m) du bouquet, en plus/moins de `SPRAY_CAPTURE_RADIUS`
+ *  — donne un peu de volume vu de biais sans faire sortir les lames du cadrage. */
+const ATLAS_SPRAY_DEPTH_JITTER = 0.4;
 
 /** Silhouette locale d'une lame (x = largeur, y = longueur depuis la base attachée à la brindille). */
 const LEAF_OUTLINE: readonly (readonly [number, number])[] = [
@@ -88,4 +101,41 @@ export function buildFoliageGeometry(anchors: readonly LeafAnchor[], lod = 0): L
   geometry.setAttribute("normal", new THREE.Float32BufferAttribute(normals, 3));
   geometry.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
   return { geometry, triangleCount: positions.length / 9 };
+}
+
+// --- Bouquet synthétique pour la capture d'atlas (mission 09, atlasCapture.ts) ---
+
+/** Vecteur perpendiculaire quelconque à `n` (repère local) — variante THREE de
+ *  la fonction du même nom dans skeleton.ts (fichier interdit à l'édition par
+ *  la partition de la mission 09, cf. plan/09-arbres-cards-atlas.md). */
+function perpendicularUnit(n: THREE.Vector3): THREE.Vector3 {
+  const reference = Math.abs(n.y) > 0.9 ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(0, 1, 0);
+  return new THREE.Vector3().crossVectors(n, reference).normalize();
+}
+
+/**
+ * Bouquet synthétique de feuilles (pas un vrai squelette) pour la capture
+ * d'atlas : les lames sont majoritairement tournées vers la caméra de capture
+ * (+Z) avec un peu de dispersion 3D, pour un effet "touffe" une fois vues de
+ * biais. Une variante par tuile de l'atlas 2×2 (`variantSeed` = index de
+ * tuile), déterministe (mulberry32 + FNV-1a, comme le reste de la génération).
+ */
+export function buildAtlasSprayAnchors(variantSeed: number): LeafAnchor[] {
+  const rand = seededRandom(hashSeed(`leaf-spray:${variantSeed}`));
+  const anchors: LeafAnchor[] = [];
+  for (let i = 0; i < ATLAS_SPRAY_LEAF_COUNT; i++) {
+    const angle = rand() * Math.PI * 2;
+    const radius = SPRAY_CAPTURE_RADIUS * Math.sqrt(rand()); // disque uniforme
+    const depth = (rand() - 0.5) * SPRAY_CAPTURE_RADIUS * ATLAS_SPRAY_DEPTH_JITTER;
+    const position: Vec3 = { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius, z: depth };
+    const normal = new THREE.Vector3((rand() - 0.5) * 0.6, (rand() - 0.5) * 0.6, 0.7 + rand() * 0.3).normalize();
+    const up = perpendicularUnit(normal);
+    anchors.push({
+      position,
+      normal: { x: normal.x, y: normal.y, z: normal.z },
+      up: { x: up.x, y: up.y, z: up.z },
+      scale: 0.85 + rand() * 0.3,
+    });
+  }
+  return anchors;
 }
