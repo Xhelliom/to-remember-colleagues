@@ -7,10 +7,18 @@ const SHADOW_FAR = 120;
 const SHADOW_EXTENT = 40;
 const SHADOW_BIAS = -0.0002;
 const SHADOW_NORMAL_BIAS = 0.03;
+// Taille d'un texel de la shadow map (m) : la cible doit se caler sur cette
+// grille quand elle suit la caméra, sinon l'ombre scintille (chaque pas
+// infra-texel change légèrement quel texel couvre quelle surface).
+const SHADOW_TEXEL_SIZE = (2 * SHADOW_EXTENT) / SHADOW_MAP_SIZE;
 const KEY_LIGHT_DISTANCE = 60;
 const CELESTIAL_DISTANCE_FACTOR = 1.2;
 const CELESTIAL_RADIUS = 4;
 const CELESTIAL_SEGMENTS = 24;
+
+function snapToTexel(v: number): number {
+  return Math.round(v / SHADOW_TEXEL_SIZE) * SHADOW_TEXEL_SIZE;
+}
 
 /** Regroupe les lumières de la scène et leur mise à jour selon l'ambiance. */
 export class Lighting {
@@ -19,6 +27,9 @@ export class Lighting {
   readonly ambient = new THREE.AmbientLight();
   readonly celestial: THREE.Mesh;
   private readonly celestialMat = new THREE.MeshBasicMaterial();
+  /** Direction courante du soleil/lune (normalisée), pour repositionner la
+   *  cible d'ombre à chaque frame sans revenir chercher l'ambiance. */
+  private readonly direction = new THREE.Vector3(0, 1, 0);
 
   constructor() {
     this.hemi.position.set(0, 50, 0);
@@ -53,14 +64,30 @@ export class Lighting {
     this.ambient.color.setHex(a.ambientColor);
     this.ambient.intensity = a.ambientIntensity;
 
-    const dir = new THREE.Vector3(...a.keyLightDir).normalize().multiplyScalar(KEY_LIGHT_DISTANCE);
+    this.direction.set(...a.keyLightDir).normalize();
+    const dir = this.direction.clone().multiplyScalar(KEY_LIGHT_DISTANCE);
     this.key.color.setHex(a.keyLightColor);
     this.key.intensity = a.keyLightIntensity;
-    this.key.position.copy(dir);
-    this.key.target.position.set(0, 0, 0);
+    this.key.position.copy(dir).add(this.key.target.position);
 
     this.celestialMat.color.setHex(a.celestialColor);
     this.celestial.visible = a.celestial !== "none";
     this.celestial.position.copy(dir).multiplyScalar(CELESTIAL_DISTANCE_FACTOR);
+  }
+
+  /**
+   * Recentre la cible d'ombre (et la lumière, à distance/direction fixe) sur
+   * la position XZ de la caméra, calée sur la grille de texels de la shadow
+   * map pour ne pas scintiller. Renvoie `true` si la cellule a changé (pour
+   * ne déclencher un recalcul de la shadow map — `autoUpdate = false` côté
+   * renderer — que lorsque c'est nécessaire).
+   */
+  followCamera(camX: number, camZ: number): boolean {
+    const x = snapToTexel(camX);
+    const z = snapToTexel(camZ);
+    if (x === this.key.target.position.x && z === this.key.target.position.z) return false;
+    this.key.target.position.set(x, 0, z);
+    this.key.position.copy(this.direction).multiplyScalar(KEY_LIGHT_DISTANCE).add(this.key.target.position);
+    return true;
   }
 }

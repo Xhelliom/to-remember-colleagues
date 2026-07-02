@@ -44,6 +44,9 @@ export class WorldStreamer {
   readonly loadedChunks = new Map<string, ChunkMeshes>();
   private nearestId: string | null = null;
   private nearestCb: (c: Company | null) => void = () => {};
+  /** Vrai si un chunk/tombe a été ajouté ou retiré depuis le dernier `consumeSceneDirty()`
+   *  (renderer.shadowMap.autoUpdate = false : signale qu'un recalcul d'ombre est nécessaire). */
+  private sceneDirty = false;
 
   constructor(
     private readonly groups: StreamerGroups,
@@ -70,6 +73,13 @@ export class WorldStreamer {
       this.nearestId = nearestId;
       this.nearestCb(nearestId ? this.slots.find((s) => s.id === nearestId)!.company : null);
     }
+  }
+
+  /** Lit et remet à zéro le drapeau de scène modifiée (chunk/tombe ajouté ou retiré). */
+  consumeSceneDirty(): boolean {
+    const dirty = this.sceneDirty;
+    this.sceneDirty = false;
+    return dirty;
   }
 
   /** Ajoute un collègue au cimetière où l'on se tient et reconstruit ses tombes. */
@@ -158,6 +168,7 @@ export class WorldStreamer {
   }
 
   private addChunkToScene(companyId: string, index: number, chunk: ChunkMeshes) {
+    this.sceneDirty = true;
     this.groups.groundPlanesGroup.add(chunk.terrain.mesh);
     if (chunk.grass) this.groups.grassGroup.add(chunk.grass.mesh);
     if (chunk.veg) for (const m of chunk.veg.meshes) this.groups.vegetationGroup.add(m);
@@ -167,6 +178,7 @@ export class WorldStreamer {
   }
 
   private removeChunkFromScene(chunk: ChunkMeshes) {
+    this.sceneDirty = true;
     this.groups.groundPlanesGroup.remove(chunk.terrain.mesh);
     if (chunk.grass) this.groups.grassGroup.remove(chunk.grass.mesh);
     if (chunk.veg) for (const m of chunk.veg.meshes) this.groups.vegetationGroup.remove(m);
@@ -212,6 +224,7 @@ export class WorldStreamer {
   }
 
   private buildChunkGraves(slot: WorldSlotWithCompany, layout: CemeteryLayout, chunkIndex: number) {
+    this.sceneDirty = true;
     const colleagues = this.loaded.get(slot.id)!;
     const terrain = this.loadedChunks.get(`${slot.id}:${chunkIndex}`)?.terrain;
     const now = Date.now();
@@ -234,6 +247,7 @@ export class WorldStreamer {
   }
 
   private removeChunkGraves(companyId: string, chunkIndex: number) {
+    this.sceneDirty = true;
     const stale = this.groups.gravesGroup.children.filter(
       (g) => g.userData.companyId === companyId && g.userData.chunk === chunkIndex,
     );

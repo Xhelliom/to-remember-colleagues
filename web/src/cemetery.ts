@@ -99,6 +99,11 @@ export class Cemetery {
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // Scène quasi statique (herbe/avatars ne projettent pas d'ombre) : on ne
+    // recalcule la shadow map que quand la cible bouge (loop, followCamera)
+    // ou que le contenu change (chunk chargé/déchargé, ambiance).
+    this.renderer.shadowMap.autoUpdate = false;
+    this.renderer.shadowMap.needsUpdate = true;
     // Rendu filmique : les HDRI/émissifs (tombes hantées/bénies) saturaient sans lui.
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = TONE_MAPPING_EXPOSURE;
@@ -273,6 +278,9 @@ export class Cemetery {
     // La forêt/les arches sont portées par world.ts ; ici, seulement les particules.
     this.decor.build(effective, PARTICLE_HALF, { structures: false });
     void this.applyHdriSky(effective);
+    // La direction de la lumière clé change avec l'heure/saison → la shadow
+    // map doit être recalculée (autoUpdate = false, voir constructeur).
+    this.renderer.shadowMap.needsUpdate = true;
   }
 
   /** Charge (async) le ciel HDR de l'ambiance et bascule le dôme shader en
@@ -418,6 +426,12 @@ export class Cemetery {
     this.maybeRefreshAmbiance();
     const t = this.clock.elapsedTime;
     const cam = this.camera.position;
+    // Shadow map recalculée seulement si la cible a changé de texel ou que la
+    // scène a bougé (chunk/tombe) — autoUpdate = false, voir constructeur.
+    const shadowTargetMoved = this.lighting.followCamera(cam.x, cam.z);
+    if (shadowTargetMoved || this.streamer.consumeSceneDirty()) {
+      this.renderer.shadowMap.needsUpdate = true;
+    }
     for (const chunk of this.streamer.loadedChunks.values()) {
       const field = chunk.grass;
       if (field) {
