@@ -7,15 +7,11 @@ import { hashSeed } from "../procedural.ts";
 import { toWorld, type Frame } from "../worldLayout.ts";
 import { loadGltf } from "./grass.ts";
 import type { TerrainChunk } from "./terrain.ts";
-import { addWindAttr, applySway } from "./windSway.ts";
+import { addWindWeightAttribute, applyWind, setWindTime, SOFT_TREE_WIND_POOL } from "./wind.ts";
 
 const TREE_DENSITY = 0.004; // arbres par m², calée sur la densité visuelle précédente
 const ROCK_DENSITY = 0.0028;
 const BORDER_MARGIN = 1.5; // retrait des murs latéraux et des bouts de chemin
-// Balancement plus lent/ample que l'herbe (frondaisons, pas des brins fins) ;
-// un seul programme compilé pour tous les arbres, temps partagé indépendant de l'herbe.
-const TREE_SWAY = { amp1: 0.15, freq1: 0.5, amp2: 0.08, freq2: 0.9, cacheKey: "treeWind" };
-const sharedTreeTime = { value: 0 };
 
 // Modèles décimés (tools/optimize-models.sh) : ~20k tris au lieu de 1-2M.
 function treePath(companyId: string): string {
@@ -86,10 +82,11 @@ function buildSwayingInstancedMeshes(
   srcs: SubMesh[],
   matrices: THREE.Matrix4[],
   ownedMats: THREE.Material[],
+  seedOffset: number,
 ): THREE.InstancedMesh[] {
   return srcs.map(({ geo, mat }) => {
-    addWindAttr(geo);
-    const swayMat = applySway(mat, sharedTreeTime, TREE_SWAY);
+    addWindWeightAttribute(geo, SOFT_TREE_WIND_POOL);
+    const swayMat = applyWind(mat, { pool: SOFT_TREE_WIND_POOL, seedOffset });
     ownedMats.push(swayMat);
     const m = new THREE.InstancedMesh(geo, swayMat, matrices.length);
     m.castShadow = true;
@@ -148,7 +145,10 @@ export class VegetationInstances {
       const srcs = extractSubMeshes(treeRes.value);
       if (srcs.length) {
         const matrices = buildPlacementMatrices(companyId, ":trees", treeCount, frame, halfWidth, zLo, zHi, terrain, 0.8, 0.6);
-        meshes.push(...buildSwayingInstancedMeshes(srcs, matrices, swayMats));
+        // Même graine que le placement (déterministe) : décorrèle la phase de balancement
+        // (gl_InstanceID, cf. wind.ts) d'une tranche à l'autre, sans nombre magique.
+        const seedOffset = hashSeed(companyId + `:trees:${zLo}`) % 1000;
+        meshes.push(...buildSwayingInstancedMeshes(srcs, matrices, swayMats, seedOffset));
       }
     }
 
@@ -164,9 +164,9 @@ export class VegetationInstances {
     return new VegetationInstances(meshes, toWorld(frame, 0, (zStart + zEnd) / 2), swayMats);
   }
 
-  /** Avance le balancement des arbres (indépendant de l'herbe). */
+  /** Avance le champ de vent partagé (cf. wind.ts — une seule horloge pour herbe et arbres). */
   update(time: number) {
-    sharedTreeTime.value = time;
+    setWindTime(time);
   }
 
   dispose() {
