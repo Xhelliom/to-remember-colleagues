@@ -5,6 +5,8 @@ const SHADOW_MAP_SIZE = 2048;
 const SHADOW_NEAR = 1;
 const SHADOW_FAR = 120;
 const SHADOW_EXTENT = 40;
+const SHADOW_BIAS = -0.0002;
+const SHADOW_NORMAL_BIAS = 0.03;
 const KEY_LIGHT_DISTANCE = 60;
 const CELESTIAL_DISTANCE_FACTOR = 1.2;
 const CELESTIAL_RADIUS = 4;
@@ -25,6 +27,8 @@ export class Lighting {
     this.key.shadow.mapSize.set(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
     this.key.shadow.camera.near = SHADOW_NEAR;
     this.key.shadow.camera.far = SHADOW_FAR;
+    this.key.shadow.bias = SHADOW_BIAS;
+    this.key.shadow.normalBias = SHADOW_NORMAL_BIAS;
     const cam = this.key.shadow.camera as THREE.OrthographicCamera;
     cam.left = -SHADOW_EXTENT;
     cam.right = SHADOW_EXTENT;

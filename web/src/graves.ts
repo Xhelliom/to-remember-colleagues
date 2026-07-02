@@ -19,7 +19,7 @@ export function seededRandom(seed: number): () => number {
  * `wear` (axe 1, vieillissement) estompe la gravure ; `haunt` (axe 2, votes
  * négatifs) assombrit l'encre vers un ton sépulcral.
  */
-function makeNameTexture(name: string, stoneHex: number, wear: number, haunt: number): THREE.CanvasTexture {
+function makeNameTexture(name: string, stoneHex: number, wear: number, haunt: number, rand: () => number): THREE.CanvasTexture {
   // Plus la tombe est vieille, plus la gravure est usée (moins contrastée).
   const ink = (base: number) => Math.max(0.12, base * (1 - 0.7 * wear));
   const w = 256;
@@ -34,11 +34,11 @@ function makeNameTexture(name: string, stoneHex: number, wear: number, haunt: nu
   ctx.fillStyle = `#${stone.getHexString()}`;
   ctx.fillRect(0, 0, w, h);
 
-  // Grain léger.
+  // Grain léger (déterministe : graine du collègue, pas Math.random).
   for (let i = 0; i < 1600; i++) {
-    const x = Math.random() * w;
-    const y = Math.random() * h;
-    const shade = Math.random() * 0.18 - 0.09;
+    const x = rand() * w;
+    const y = rand() * h;
+    const shade = rand() * 0.18 - 0.09;
     ctx.fillStyle = `rgba(0,0,0,${Math.max(0, shade)})`;
     ctx.fillRect(x, y, 1.5, 1.5);
   }
@@ -223,7 +223,7 @@ export function createGrave(colleague: Colleague, graveHex: number, axes: GraveA
     emissiveIntensity: Math.max(bless * 0.6, haunt * 0.5),
   });
   const frontMat = new THREE.MeshStandardMaterial({
-    map: makeNameTexture(colleague.name, stoneColor.getHex(), age, haunt),
+    map: makeNameTexture(colleague.name, stoneColor.getHex(), age, haunt, rand),
     roughness: 0.92,
     metalness: 0.02,
     emissive,

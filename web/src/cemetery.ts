@@ -17,6 +17,7 @@ const FOV = 70;
 const NEAR = 0.1;
 const FAR = 400;
 const MAX_PIXEL_RATIO = 2;
+const TONE_MAPPING_EXPOSURE = 1.0;
 const MAX_DELTA = 0.05;
 const FOCUS_RADIUS = 3.2;
 const GRASS_LOD_RADIUS = 30; // en dessous : rendu complet
@@ -91,11 +92,14 @@ export class Cemetery {
   private countCb: (n: number) => void = () => {};
 
   constructor(canvas: HTMLCanvasElement) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, MAX_PIXEL_RATIO));
     this.renderer.setSize(window.innerWidth, window.innerHeight);
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    // Rendu filmique : les HDRI/émissifs (tombes hantées/bénies) saturaient sans lui.
+    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    this.renderer.toneMappingExposure = TONE_MAPPING_EXPOSURE;
 
     this.camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, NEAR, FAR);
 

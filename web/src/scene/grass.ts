@@ -8,6 +8,7 @@ import { hashSeed } from "../procedural.ts";
 const TILE_SIZE_M = 1.5;
 const GROUND_HEIGHT = 0.01; // décollement minimal pour éviter le z-fighting
 const SPLAT_RES = 64;
+const TEX_ANISOTROPY = 8; // netteté en vue rasante (permanente en 1ère personne)
 
 // Cache GLTF partagé avec grassField.ts (touffes d'herbe).
 const gltfLoader = new GLTFLoader();
@@ -30,7 +31,18 @@ const texCache = new Map<string, THREE.Texture>();
 
 function loadTex(path: string): THREE.Texture {
   let t = texCache.get(path);
-  if (!t) { t = texLoader.load(path); texCache.set(path, t); }
+  if (!t) {
+    t = texLoader.load(path);
+    t.anisotropy = TEX_ANISOTROPY;
+    texCache.set(path, t);
+  }
+  return t;
+}
+
+/** Texture couleur (diffuse) : décodage sRGB, sinon les JPG Poly Haven rendent délavés. */
+function loadDiffuseTex(path: string): THREE.Texture {
+  const t = loadTex(path);
+  t.colorSpace = THREE.SRGBColorSpace;
   return t;
 }
 
@@ -82,20 +94,25 @@ export function buildGroundMaterial(
   const repeat = Math.ceil((plotHalf * 2) / TILE_SIZE_M);
   const sv = (hashSeed(companyId) % 3) + 1; // variante neige déterministe par cimetière
 
+  // Clone avant de tuiler : `repeat` varie selon la portée du chunk (`plotHalf`), donc
+  // ne JAMAIS muter l'instance en cache — partagée par tous les chunks/cimetières, une
+  // mutation ici décalerait le tiling des autres, et sa dispose (clearWorld) invaliderait
+  // le cache pour la prochaine entrée dans le monde.
   function tile(tex: THREE.Texture): THREE.Texture {
-    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(repeat, repeat);
-    return tex;
+    const t = tex.clone();
+    t.wrapS = t.wrapT = THREE.RepeatWrapping;
+    t.repeat.set(repeat, repeat);
+    return t;
   }
 
   const fg = "/textures/ground/forest_ground_04_2k/textures/forest_ground_04";
   const rt = "/textures/ground/rocky_trail_2k/textures/rocky_trail";
   const sn = `/textures/ground/snow_0${sv}_2k/textures/snow_0${sv}`;
 
-  const diff0 = tile(loadTex(`${fg}_diff_2k.jpg`));
+  const diff0 = tile(loadDiffuseTex(`${fg}_diff_2k.jpg`));
   const nor0  = tile(loadTex(`${fg}_nor_gl_2k.jpg`));
-  const diff1 = tile(loadTex(`${rt}_diff_2k.jpg`));
-  const diff2 = tile(loadTex(`${sn}_diff_2k.jpg`));
+  const diff1 = tile(loadDiffuseTex(`${rt}_diff_2k.jpg`));
+  const diff2 = tile(loadDiffuseTex(`${sn}_diff_2k.jpg`));
   const splatTex = makeSplatTex(karma, seasonKey);
 
   const mat = new THREE.MeshStandardMaterial({ map: diff0, normalMap: nor0, roughness: 0.9 });
