@@ -80,11 +80,41 @@ graph TD
 | 07 | dressing-deadfall | M | ✅ done (43 tests · dressing appliqué aux stèles · deadfall builder **non placé**) |
 | 08 | arbres-grammaire | L | ✅ done (12 tests · hêtre 5052 tris hero · **pas encore rendu en scène réelle → mission 10**) |
 | 09 | arbres-cards-atlas | L | ✅ done (16 tests · −87% tris feuillage · buildTree rétro-compatible) |
-| 10 | arbres-lod-impostors | L | ⬜ |
+| 10 | arbres-lod-impostors | L | ✅ done (impostors+treeLod+canopyShell · gated `PROCEDURAL_TREES_ENABLED=false`) |
 | 11 | understory | M | ✅ done (29 tests · `MeshGrower` inexistant → growSkeleton direct · lierre = fn pure) |
-| 12 | depth-prepass | M | ⬜ |
-| 13 | ombres | M | ⬜ |
-| 14 | post-ambiance-bookmarks | M | ⬜ |
+| 12 | depth-prepass | M | ✅ done (gated `?prepass=1`) |
+| 13 | ombres | M | ✅ done (gated `CSM_SHADOWS_ENABLED=false` · plancher anti-ombre-noire) |
+| 14 | post-ambiance-bookmarks | M | ✅ done (gated `?post=1` · bookmarks `?shot=1..9`/`?shot=fly`) |
+
+**14/14 missions livrées** — typecheck 0 erreur, 323 tests web + 43 server verts. Tout est
+ADDITIF et derrière des flags (défaut = comportement actuel préservé). Étape suivante =
+**activation + validation visuelle** (à l'œil, ce qu'un modèle ne peut juger sur du statique).
+
+## Activation & validation visuelle
+
+Les flags à basculer pour VOIR le rework en jeu (par ordre de sûreté/impact) :
+
+| Fonctionnalité | Flag / activation | Où | À vérifier / faire d'abord |
+|---|---|---|---|
+| Herbe procédurale + vent | **déjà active** (API `GrassField` inchangée) | — | juste regarder : pelouse qui épouse le sol, vent sans jitter |
+| Stèles/tombes altérées #25 | **déjà active** (round/rect) | — | comparer tombes `maintenance` haut vs bas |
+| Dressing mousse/lichen | **déjà actif** sur les stèles | — | idem |
+| Post (auto-exp/grade heure/brume) | `?post=1` | URL | comparer aube (`?T=6`) vs midi (`?T=12`) |
+| Bookmarks / visite guidée | `?shot=1..9`, `?shot=fly` | URL | — |
+| Depth prepass (perf) | `?prepass=1` | URL | image identique, `window.__perf.fps` en hausse |
+| Ombres CSM/PCSS | `CSM_SHADOWS_ENABLED=true` | `scene/shadowIntegration.ts` | **mesurer** le coût WebGL, retomber si trop lourd |
+| Ring d'herbe « partout » | `GRASS_RING_ENABLED=true` | `scene/grassRing.ts` (via worldStreamer) | **couper l'herbe par-tranche** sinon double rendu |
+| Arbres procéduraux (hêtre) | `PROCEDURAL_TREES_ENABLED=true` + passer un `renderer` | `scene/vegetation.ts` | A/B vs GLTF ; valider densité/perf |
+
+**Baselines e2e** : les specs sont écrits, exécution différée (serveur+DB). Pour générer les
+références : `pnpm db:up` puis `UPDATE_BASELINES=1 pnpm e2e` (crée `e2e/baselines/*.png`), une
+fois les flags visuels réglés à ton goût.
+
+**Restes différés** (non bloquants) : rochers déco GLTF→procédural dans `vegetation.ts`,
+placement du deadfall dans le monde, mapping distance→LOD de l'understory, culling frustum du
+ring d'herbe (worldStreamer ne reçoit qu'un Vec2). Convention e2e à trancher : `tree-hero.spec.ts`
+(mission 08) utilise `yaw=Math.PI` là où `forest.spec.ts` a vérifié `yaw=0` — aligner à la 1ʳᵉ
+génération de baselines.
 
 ---
 
