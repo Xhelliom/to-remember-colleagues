@@ -15,6 +15,7 @@ import { disposeObject } from "./disposeObject.ts";
 import { GrassRing } from "./grassRing.ts";
 
 const NEAR_MARGIN = 3; // tolérance pour se considérer « à » un cimetière (HUD, ajout)
+const DEFAULT_EYE_HEIGHT = 1.7; // hauteur d'œil par défaut si `update` est appelé sans camY (LOD arbres : distance quasi 2D)
 /**
  * Anneau d'herbe centré caméra (mission 05, `scene/grassRing.ts`) — désactivé
  * par défaut : l'active sans couper l'herbe par-tranche (`GrassField`, cf.
@@ -58,6 +59,9 @@ export class WorldStreamer {
   private sceneDirty = false;
   /** Anneau d'herbe centré caméra (mission 05) — créé paresseusement si GRASS_RING_ENABLED. */
   private grassRing: GrassRing | null = null;
+  /** Renderer injecté après coup (cf. setRenderer) — requis par la capture cards/impostors
+   *  des arbres procéduraux (mission 10). Absent → chemin GLTF conservé. */
+  private renderer?: THREE.WebGLRenderer;
 
   constructor(
     private readonly groups: StreamerGroups,
@@ -66,6 +70,11 @@ export class WorldStreamer {
 
   setLoader(loader: ColleagueLoader) {
     this.loader = loader;
+  }
+
+  /** Injecte le renderer (arbres procéduraux, mission 10) — à appeler avant tout chargement de chunk. */
+  setRenderer(renderer: THREE.WebGLRenderer) {
+    this.renderer = renderer;
   }
 
   /** Cimetière le plus proche (où l'on se tient) ou null si l'on est sur la route. */
@@ -77,8 +86,11 @@ export class WorldStreamer {
     this.slots = slots;
   }
 
-  update(cam: Vec2) {
+  update(cam: Vec2, camY = DEFAULT_EYE_HEIGHT) {
     for (const slot of this.slots) this.updateSlot(slot, cam);
+    // Recalcule le palier LOD des arbres procéduraux (hero/cards/impostors) de
+    // chaque chunk chargé — no-op si le chunk est en mode GLTF (treeLod absent).
+    for (const chunk of this.loadedChunks.values()) chunk.veg?.updateTreeLod(cam.x, camY, cam.z);
     if (GRASS_RING_ENABLED) this.updateGrassRing(cam);
     const nearestId = this.findNearestSlotId(cam);
     if (nearestId !== this.nearestId) {
@@ -232,7 +244,7 @@ export class WorldStreamer {
     if (this.pendingChunks.has(key) || this.loadedChunks.has(key)) return;
     this.pendingChunks.add(key);
     try {
-      const chunk = await buildChunkMeshes(slot.id, slot, layout, index, layout.chunkRanges[index], slot.company.karma, this.getAmbiance());
+      const chunk = await buildChunkMeshes(slot.id, slot, layout, index, layout.chunkRanges[index], slot.company.karma, this.getAmbiance(), this.renderer);
       if (!this.slots.includes(slot)) {
         disposeChunkMeshes(chunk);
         return; // on a quitté le monde entre-temps

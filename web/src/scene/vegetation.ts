@@ -25,7 +25,7 @@ const TREE_SCALE_RANGE = 0.6;
  * d'impostor, cf. impostors.ts) — sans lui, le chemin GLTF reste utilisé même
  * flag à `true` (voir `create`).
  */
-const PROCEDURAL_TREES_ENABLED = false;
+const PROCEDURAL_TREES_ENABLED = true;
 
 // Modèles décimés (tools/optimize-models.sh) : ~20k tris au lieu de 1-2M.
 function treePath(companyId: string): string {

@@ -111,6 +111,10 @@ export class Cemetery {
     // Rendu filmique : les HDRI/émissifs (tombes hantées/bénies) saturaient sans lui.
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = TONE_MAPPING_EXPOSURE;
+    // Arbres procéduraux (mission 10) : le streamer a besoin du renderer pour la
+    // capture cards/impostors. Injecté ici (l'initialiseur du champ `streamer`
+    // s'exécute avant ce corps de constructeur, `this.renderer` y serait undefined).
+    this.streamer.setRenderer(this.renderer);
 
     this.camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, NEAR, FAR);
     this.shadowIntegration = new ShadowIntegration(this.camera, this.scene, this.renderer, this.lighting.key);
@@ -432,7 +436,7 @@ export class Cemetery {
     if (this.running) {
       this.controls.update(dt);
       this.updateFocus();
-      this.streamer.update({ x: this.camera.position.x, z: this.camera.position.z });
+      this.streamer.update({ x: this.camera.position.x, z: this.camera.position.z }, this.camera.position.y);
       this.publishPresence();
     }
     this.updatePeers(dt);
