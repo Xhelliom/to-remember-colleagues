@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Générateur d'arbre — banc de réglage (hêtre)</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: #10130e; color: #cdd6c4;
+    font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+  #app { display: flex; height: 100vh; }
+  #view { flex: 1; position: relative; min-width: 0; }
+  #scene { width: 100%; height: 100%; display: block; }
+  #ref { position: absolute; top: 8px; right: 8px; width: 180px; border: 1px solid #2c3a22;
+    border-radius: 4px; opacity: 0.9; background: #0008; }
+  #ref img { width: 100%; display: block; border-radius: 4px; }
+  #ref div { text-align: center; padding: 2px; color: #8fa77e; }
+  #panel { width: 330px; overflow-y: auto; padding: 10px 12px; background: #171b12;
+    border-left: 1px solid #2c3a22; }
+  h1 { font-size: 13px; margin: 0 0 8px; color: #9ecb76; }
+  h2 { font-size: 11px; text-transform: uppercase; letter-spacing: .5px; color: #7d9a63;
+    margin: 14px 0 4px; border-bottom: 1px solid #2c3a22; padding-bottom: 2px; }
+  .row { display: grid; grid-template-columns: 1fr 46px; gap: 4px; align-items: center; margin: 3px 0; }
+  .row label { grid-column: 1 / 3; color: #b6c4a4; }
+  .row input[type=range] { grid-column: 1; width: 100%; }
+  .row .val { grid-column: 2; text-align: right; color: #e6efd8; }
+  .modes { display: flex; gap: 6px; margin: 4px 0; }
+  .modes button { flex: 1; padding: 4px; background: #222b18; color: #cdd6c4;
+    border: 1px solid #3a4a2a; border-radius: 3px; cursor: pointer; }
+  .modes button.on { background: #4c7a34; color: #fff; border-color: #6ea84a; }
+  .sel { grid-column: 1 / 3; width: 100%; background: #0e120a; color: #cdd6c4; border: 1px solid #2c3a22; border-radius: 3px; padding: 2px; }
+  .colr { grid-column: 1 / 3; width: 100%; height: 24px; background: #0e120a; border: 1px solid #2c3a22; border-radius: 3px; }
+  #stats { margin-top: 10px; color: #8fa77e; white-space: pre; font-size: 11px; }
+  .btns { display: flex; gap: 6px; margin-top: 10px; }
+  .btns button { flex: 1; padding: 6px; background: #2a3620; color: #cdd6c4;
+    border: 1px solid #3a4a2a; border-radius: 3px; cursor: pointer; }
+  textarea { width: 100%; height: 88px; margin-top: 8px; background: #0e120a; color: #9ecb76;
+    border: 1px solid #2c3a22; border-radius: 3px; font: 10px/1.3 ui-monospace, monospace; }
+  .hint { color: #6b7d57; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="view">
+    <canvas id="scene"></canvas>
+    <div id="ref"><img src="/hetre-concept.png" alt="concept"><div>concept cible</div></div>
+  </div>
+  <div id="panel">
+    <h1>🌳 Générateur de hêtre</h1>
+    <div class="hint">Glisse un slider → rebuild live. Molette = zoom, glisser dans la vue = tourner.</div>
+    <div id="modes-seed"></div>
+    <div id="sliders"></div>
+    <div id="stats"></div>
+    <div class="btns">
+      <button id="reframe">Recadrer</button>
+      <button id="reset">Reset défauts</button>
+    </div>
+    <textarea id="json" readonly></textarea>
+    <div class="hint">↑ params (copiable) — capture carrée :<br>tools/shot.ts --url .../tree-generator.html?p=&lt;json&gt;</div>
+  </div>
+</div>
+<script type="module">
+  import * as THREE from "three";
+  import { buildTree } from "/src/scene/trees/treeBuilder.ts";
+  import { setWindTime, setWindField } from "/src/scene/wind.ts";
+
+  // Défauts = BEECH_SPECIES (skeleton.ts) — point de départ connu.
+  const DEFAULTS = {
+    trunkHeight: 6, trunkSegments: 8, trunkBaseRadius: 0.26, trunkTipRadius: 0.1, trunkLeanMax: 0.28,
+    crownCenterHeightRatio: 0.72, crownRadiusXZ: 3.0, crownRadiusY: 2.1,
+    branchLevels: 3, branchesL1: 6, branchesL2: 4, branchesL3: 2, branchSegments: 5,
+    branchLengthRatio: 0.66, branchRadiusTaper: 0.62, branchStartRatio: 0.5,
+    tropismWeight: 0.62, jitterWeight: 0.16, leafAnchorsPerTwig: 8, leafSpread: 0.4,
+    upwardBias: 0, domeCrown: 0, groundClamp: 0, // opt-in « dôme » (skeleton.ts)
+  };
+  // [clé, min, max, pas, groupe]
+  const SLIDERS = [
+    ["trunkHeight", 2, 12, 0.2, "Tronc"], ["trunkSegments", 4, 16, 1, "Tronc"],
+    ["trunkBaseRadius", 0.1, 1.0, 0.01, "Tronc"], ["trunkTipRadius", 0.02, 0.5, 0.01, "Tronc"],
+    ["trunkLeanMax", 0, 1, 0.02, "Tronc"],
+    ["crownCenterHeightRatio", 0.3, 1.8, 0.02, "Couronne"], ["crownRadiusXZ", 1, 8, 0.1, "Couronne"],
+    ["crownRadiusY", 1, 7, 0.1, "Couronne"],
+    ["branchLevels", 1, 3, 1, "Branches"], ["branchesL1", 1, 18, 1, "Branches"],
+    ["branchesL2", 0, 14, 1, "Branches"], ["branchesL3", 0, 12, 1, "Branches"],
+    ["branchSegments", 2, 10, 1, "Branches"], ["branchLengthRatio", 0.3, 1.3, 0.02, "Branches"],
+    ["branchRadiusTaper", 0.3, 0.9, 0.02, "Branches"], ["branchStartRatio", 0, 0.95, 0.02, "Branches"],
+    ["tropismWeight", 0, 1, 0.02, "Branches"], ["jitterWeight", 0, 0.6, 0.02, "Branches"],
+    ["leafAnchorsPerTwig", 1, 28, 1, "Feuilles"], ["leafSpread", 0.1, 2.5, 0.05, "Feuilles"],
+    ["upwardBias", 0, 1, 0.02, "Dôme (anti-plongée)"], ["domeCrown", 0, 1, 1, "Dôme (anti-plongée)"],
+    ["groundClamp", 0, 1, 1, "Dôme (anti-plongée)"],
+  ];
+
+  const q = new URLSearchParams(location.search);
+  // Mode capture (tools/shot.ts) : masque l'UI → canvas plein cadre, carré.
+  if (q.get("capture")) {
+    document.getElementById("panel").style.display = "none";
+    document.getElementById("ref").style.display = "none";
+  }
+  let seed = Number(q.get("seed") ?? "1");
+  let foliageMode = q.get("foliage") ?? "cards";
+  let leafShape = q.get("leaf") ?? "hetre";           // forme de feuille (mesh/hybrid)
+  let cloudSmooth = q.get("smooth") === "1";           // cloud : ombrage lissé
+  let barkColor = q.get("bark") ? parseInt(q.get("bark"), 16) : undefined; // ex ?bark=6b5642
+  const state = { ...DEFAULTS };
+  try { if (q.get("p")) Object.assign(state, JSON.parse(q.get("p"))); } catch {}
+
+  // Reconstitue l'objet TreeSpecies (branchesPerLevel = tableau tronqué à branchLevels).
+  function species() {
+    const { branchesL1, branchesL2, branchesL3, branchLevels, domeCrown, groundClamp, ...rest } = state;
+    return { ...rest, branchLevels,
+      branchesPerLevel: [branchesL1, branchesL2, branchesL3].slice(0, branchLevels),
+      domeCrown: !!domeCrown, groundClamp: !!groundClamp };
+  }
+
+  // --- Scène ---
+  const canvas = document.getElementById("scene");
+  const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, preserveDrawingBuffer: true });
+  renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x9fc4e8);
+  scene.add(new THREE.AmbientLight(0x88a0b0, 0.5));
+  const sun = new THREE.DirectionalLight(0xfff2d8, 3); sun.position.set(6, 10, 4); scene.add(sun);
+  const ground = new THREE.Mesh(new THREE.PlaneGeometry(400, 400),
+    new THREE.MeshStandardMaterial({ color: 0x2c3620, roughness: 1 }));
+  ground.rotation.x = -Math.PI / 2; scene.add(ground);
+  const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 1000);
+
+  // Caméra orbitale minimale (target + sphérique) — pas d'OrbitControls importé.
+  const orbit = { target: new THREE.Vector3(0, 4, 0), radius: 24, theta: 0, phi: 0.05 };
+  function applyCam() {
+    const { target: t, radius: r, theta, phi } = orbit;
+    camera.position.set(
+      t.x + r * Math.cos(phi) * Math.sin(theta),
+      t.y + r * Math.sin(phi),
+      t.z + r * Math.cos(phi) * Math.cos(theta));
+    camera.lookAt(t);
+  }
+
+  function bbox(group) {
+    group.updateMatrixWorld(true);
+    const mn = [1e9, 1e9, 1e9], mx = [-1e9, -1e9, -1e9];
+    group.traverse((o) => {
+      const g = o.geometry; if (!g?.attributes?.position) return;
+      const p = g.attributes.position, e = o.matrixWorld.elements;
+      for (let i = 0; i < p.count; i++) {
+        const a = p.getX(i), b = p.getY(i), c = p.getZ(i);
+        const x = e[0]*a+e[4]*b+e[8]*c+e[12], y = e[1]*a+e[5]*b+e[9]*c+e[13], z = e[2]*a+e[6]*b+e[10]*c+e[14];
+        if (x<mn[0])mn[0]=x; if (y<mn[1])mn[1]=y; if (z<mn[2])mn[2]=z;
+        if (x>mx[0])mx[0]=x; if (y>mx[1])mx[1]=y; if (z>mx[2])mx[2]=z;
+      }
+    });
+    return { mn, mx };
+  }
+  // Cadre l'arbre visible au-dessus du sol (base au ras du bas), comme le concept.
+  function frame(box) {
+    const top = box.mx[1], h = Math.max(top, 1);
+    orbit.target.set((box.mn[0]+box.mx[0])/2, h/2, (box.mn[2]+box.mx[2])/2);
+    orbit.radius = (h*0.62) / Math.tan((55*Math.PI/180)/2) + (box.mx[2]-box.mn[2])/2;
+    orbit.theta = 0; orbit.phi = 0.05;
+  }
+
+  let current = null, lastBox = null;
+  function rebuild(reframe = true) {
+    if (current) { scene.remove(current.group); current.dispose(); }
+    current = buildTree(seed, { renderer, foliageMode, species: species(), leafShape, cloudSmooth, barkColor });
+    scene.add(current.group);
+    lastBox = bbox(current.group);
+    if (reframe) frame(lastBox);
+    applyCam();
+    const s = current.stats;
+    document.getElementById("stats").textContent =
+      `tris: ${s.totalTriangles}  (écorce ${s.barkTriangles} · feuillage ${s.foliageTriangles})\n` +
+      `feuilles: ${s.leafCount}${s.cardCount!=null?`  cartes: ${s.cardCount}`:""}\n` +
+      `hauteur: ${(lastBox.mx[1]).toFixed(1)}  largeur: ${(lastBox.mx[0]-lastBox.mn[0]).toFixed(1)}` +
+      `  bas: ${lastBox.mn[1].toFixed(1)}`;
+    document.getElementById("json").value = JSON.stringify(species());
+  }
+  // hooks agent/headless
+  window.__build = (o = {}) => {
+    Object.assign(state, o.species ?? {});
+    if (o.foliageMode) foliageMode = o.foliageMode;
+    if (o.leafShape) leafShape = o.leafShape;
+    if (o.cloudSmooth !== undefined) cloudSmooth = o.cloudSmooth;
+    if (o.barkColor !== undefined) barkColor = o.barkColor;
+    rebuild(!q.get("cam"));
+    return { stats: current.stats, box: lastBox };
+  };
+  window.__species = species;
+  // Cadrage libre pour l'agent : œil (px,py,pz) + cible optionnelle (tx,ty,tz).
+  window.__setCam = (px, py, pz, tx, ty, tz) => {
+    camera.position.set(px, py, pz);
+    if (tx !== undefined) orbit.target.set(tx, ty, tz);
+    camera.lookAt(orbit.target);
+  };
+  window.__frame = () => { if (lastBox) { frame(lastBox); applyCam(); } };
+  // __ready résolu après quelques frames RENDUES (pas immédiatement) — sinon
+  // shot.ts capture avant la 1re frame (buffer blanc sur les arbres lourds).
+  let readyResolve;
+  window.__ready = new Promise((r) => { readyResolve = r; });
+
+  // --- Panneau ---
+  // Vent coupé par défaut : le banc montre la POSE DE REPOS générée. Avec force > 0
+  // le modèle applique un lean constant (downwind) + sway → l'arbre « part sur le
+  // côté », ce qui n'a rien à voir avec la génération. Slider pour le rallumer.
+  let windForce = Number(q.get("wind") ?? "0");
+  const applyWind = () => setWindField(new THREE.Vector2(1, 0), windForce);
+  applyWind();
+
+  const modesSeed = document.getElementById("modes-seed");
+  modesSeed.innerHTML =
+    `<div class="modes">${["mesh","cards","hybrid","cloud"].map(m =>
+      `<button data-mode="${m}" class="${m===foliageMode?"on":""}">${m}</button>`).join("")}</div>` +
+    `<div class="row"><label>seed</label><input type="range" id="seed" min="1" max="60" step="1" value="${seed}"><span class="val" id="seed-v">${seed}</span></div>` +
+    `<div class="row"><label>vent (force)</label><input type="range" id="wind" min="0" max="1" step="0.05" value="${windForce}"><span class="val" id="wind-v">${windForce}</span></div>` +
+    `<div class="row"><label>feuille (forme)</label><select id="leaf" class="sel"><option value="hetre">Hêtre</option><option value="ovale">Ovale</option><option value="ronde">Ronde</option><option value="lanceolee">Lancéolée</option></select></div>` +
+    `<div class="row"><label>tronc (couleur)</label><input type="color" id="bark" class="colr" value="#6b5642"></div>` +
+    `<div class="row"><label>cloud lissé</label><input type="checkbox" id="smooth"${cloudSmooth ? " checked" : ""} style="grid-column:2;justify-self:end;width:15px;height:15px"></div>`;
+  const windEl = document.getElementById("wind");
+  windEl.oninput = () => { windForce = +windEl.value; document.getElementById("wind-v").textContent = windEl.value; applyWind(); };
+  const leafEl = document.getElementById("leaf"); leafEl.value = leafShape;
+  leafEl.onchange = () => { leafShape = leafEl.value; rebuild(false); };
+  const barkEl = document.getElementById("bark");
+  if (barkColor !== undefined) barkEl.value = "#" + barkColor.toString(16).padStart(6, "0");
+  barkEl.oninput = () => { barkColor = parseInt(barkEl.value.slice(1), 16); rebuild(false); };
+  const smoothEl = document.getElementById("smooth");
+  smoothEl.onchange = () => { cloudSmooth = smoothEl.checked; rebuild(false); };
+  modesSeed.querySelectorAll("[data-mode]").forEach(b => b.onclick = () => {
+    foliageMode = b.dataset.mode;
+    modesSeed.querySelectorAll("[data-mode]").forEach(x => x.classList.toggle("on", x === b));
+    rebuild(false);
+  });
+  const seedEl = document.getElementById("seed");
+  seedEl.oninput = () => { seed = +seedEl.value; document.getElementById("seed-v").textContent = seed;
+    schedule(); };
+
+  const container = document.getElementById("sliders");
+  let group = "";
+  for (const [k, min, max, step] of SLIDERS) {
+    const g = SLIDERS.find(s => s[0] === k)[4];
+    if (g !== group) { group = g; container.insertAdjacentHTML("beforeend", `<h2>${g}</h2>`); }
+    const row = document.createElement("div"); row.className = "row";
+    row.innerHTML = `<label>${k}</label><input type="range" min="${min}" max="${max}" step="${step}" value="${state[k]}"><span class="val">${state[k]}</span>`;
+    const input = row.querySelector("input"), val = row.querySelector(".val");
+    input.oninput = () => { state[k] = +input.value; val.textContent = input.value; schedule(); };
+    container.appendChild(row);
+  }
+
+  // Rebuild throttlé (≤ 1 / 90ms) pour un drag fluide même sur gros arbres.
+  let pending = false, t0 = 0;
+  function schedule() {
+    if (pending) return; pending = true;
+    const wait = Math.max(0, 90 - (performance.now() - t0));
+    setTimeout(() => { pending = false; t0 = performance.now(); rebuild(false); }, wait);
+  }
+  document.getElementById("reframe").onclick = () => { if (lastBox) { frame(lastBox); applyCam(); } };
+  document.getElementById("reset").onclick = () => { Object.assign(state, DEFAULTS);
+    document.querySelectorAll("#sliders input").forEach((inp, i) => {
+      inp.value = state[SLIDERS[i][0]]; inp.nextElementSibling.textContent = inp.value; });
+    rebuild(); };
+
+  // --- Interaction caméra ---
+  let drag = null;
+  canvas.addEventListener("pointerdown", (e) => { drag = { x: e.clientX, y: e.clientY }; canvas.setPointerCapture(e.pointerId); });
+  canvas.addEventListener("pointerup", () => drag = null);
+  canvas.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    orbit.theta -= (e.clientX - drag.x) * 0.006;
+    orbit.phi = Math.max(-1.2, Math.min(1.3, orbit.phi + (e.clientY - drag.y) * 0.006));
+    drag = { x: e.clientX, y: e.clientY }; applyCam();
+  });
+  canvas.addEventListener("wheel", (e) => { e.preventDefault();
+    orbit.radius = Math.max(2, orbit.radius * (1 + Math.sign(e.deltaY) * 0.08)); applyCam(); }, { passive: false });
+
+  function resize() { const r = canvas.getBoundingClientRect();
+    renderer.setSize(r.width, r.height, false); camera.aspect = r.width / r.height; camera.updateProjectionMatrix(); }
+  addEventListener("resize", resize);
+
+  rebuild();
+  resize();
+  if (q.get("cam")) { const [x,y,z] = q.get("cam").split(",").map(Number);
+    camera.position.set(x,y,z); camera.lookAt(orbit.target); }
+  const clock = new THREE.Clock();
+  let frames = 0;
+  renderer.setAnimationLoop(() => {
+    setWindTime(clock.getElapsedTime());
+    renderer.render(scene, camera);
+    if (++frames === 15) readyResolve(); // marge pour les arbres lourds (capture headless fiable)
+  });
+</script>
+</body>
+</html>

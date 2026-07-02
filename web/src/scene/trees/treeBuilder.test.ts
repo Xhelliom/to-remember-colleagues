@@ -3,8 +3,10 @@ import { buildTree } from "./treeBuilder.ts";
 
 // Budget triangles d'un hero UNIQUE (un seul visible à la fois, cf. plan) :
 // large marge, mais borne quand même une explosion accidentelle du modèle.
+// Relevé après montée en fidélité : tronc à 10 côtés (tubeMesh, anti-couture)
+// + feuille de hêtre ovale (leafMesh) → ~22,5 k tris pour un seul arbre, OK.
 const MIN_HERO_TRIANGLES = 500;
-const MAX_HERO_TRIANGLES = 20_000;
+const MAX_HERO_TRIANGLES = 26_000;
 const COARSE_LOD = 3;
 
 describe("buildTree — budget hero (lod 0)", () => {

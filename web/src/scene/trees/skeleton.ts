@@ -64,13 +64,27 @@ export type TreeSpecies = {
   readonly branchRadiusTaper: number;
   /** Fraction basse du parent en-deçà de laquelle aucune branche ne démarre. */
   readonly branchStartRatio: number;
-  /** Force d'attraction vers la surface de l'enveloppe de couronne (0 = ligne droite, 1 = colle à l'enveloppe). */
+  /** Alignement des branches sur la normale radiale (depuis le centre de
+   *  couronne) : 0 = elles gardent leur tilt initial (couronne évasée/large),
+   *  1 = elles suivent le radial ≈ vertical près de l'axe (couronne étroite/
+   *  colonne). CONTRE-INTUITIF : ce n'est PAS un « remplir la couronne » — cf.
+   *  `tropismDir`. Pour large et pleine : `crownRadiusXZ` + branches + jitter. */
   readonly tropismWeight: number;
   /** Irrégularité directionnelle (bruit) à chaque pas de croissance. */
   readonly jitterWeight: number;
   readonly leafAnchorsPerTwig: number;
   /** Rayon de dispersion des feuilles autour du bout de brindille. */
   readonly leafSpread: number;
+  // --- Améliorations opt-in « dôme » (banc de générateur tree-generator.html) :
+  //     absents → undefined → grammaire historique inchangée (prod + tests). ---
+  /** Attraction de la direction de pousse vers le haut (+Y) à chaque pas
+   *  (0 = aucune, 1 = tout droit vers le haut) — contrecarre la plongée. */
+  readonly upwardBias?: number;
+  /** Empêche le tropisme de tirer les branches vers la moitié BASSE de
+   *  l'enveloppe (`outward.y ≥ 0`) → couronne évasée en dôme, pas en cône inversé. */
+  readonly domeCrown?: boolean;
+  /** Clampe la croissance au-dessus du sol (`y ≥ 0`) → fin des branches « racines ». */
+  readonly groundClamp?: boolean;
 };
 
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5)); // ≈ 137,5° — phyllotaxie spirale
@@ -79,6 +93,8 @@ const TIP_RADIUS_RATIO = 0.35; // rayon au bout d'une branche / rayon à sa base
 const VEC_EPSILON = 1e-8;
 const LEAF_SCALE_MIN = 0.75;
 const LEAF_SCALE_RANGE = 0.5;
+const WORLD_UP: Vec3 = { x: 0, y: 1, z: 0 };
+const GROUND_Y = 0; // les nœuds ne descendent pas sous le sol si `groundClamp`
 
 /** Espèce de départ (#08) : feuillu type hêtre, couronne arrondie et pleine. */
 export const BEECH_SPECIES: TreeSpecies = {
@@ -98,7 +114,7 @@ export const BEECH_SPECIES: TreeSpecies = {
   branchLengthRatio: 0.66,
   branchRadiusTaper: 0.62, // branches plus charpentées
   branchStartRatio: 0.5, // branches à partir de la moitié du tronc (bas dégagé)
-  tropismWeight: 0.62, // colle davantage à l'enveloppe → couronne ronde et pleine
+  tropismWeight: 0.62, // aligne les branches sur le radial de couronne (cf. tropismDir : haut = plus étroit, pas « plus rond »)
   jitterWeight: 0.16,
   leafAnchorsPerTwig: 8,
   leafSpread: 0.4,
@@ -147,6 +163,26 @@ function envelopeOutward(pos: Vec3, center: Vec3, species: TreeSpecies): Vec3 {
   return normalize({ x: d.x / rXZ2, y: d.y / rY2, z: d.z / rXZ2 });
 }
 
+/** Bride la direction radiale de couronne à la moitié HAUTE (`y ≥ 0`) : une
+ *  branche basse est alors tirée vers l'extérieur (voire le haut) au lieu de
+ *  plonger vers la surface inférieure de l'ellipsoïde. */
+function clampOutwardUp(v: Vec3): Vec3 {
+  return v.y >= 0 ? v : normalize({ x: v.x, y: 0, z: v.z });
+}
+
+/** Direction de tropisme au pas courant = normale radiale sortante depuis le
+ *  centre de couronne (avec anti-plongée en `domeCrown`).
+ *  ATTENTION au sens réel (contre-intuitif) : cette normale près de l'axe pointe
+ *  surtout vers le HAUT, donc `tropismWeight` haut ALIGNE les branches sur ce
+ *  radial → couronne plus ÉTROITE/colonne. C'est le tilt initial des branches
+ *  (`BRANCH_TILT_ANGLE`) + le jitter qui donnent l'évasement ; un tropisme fort
+ *  l'écrase. Levier « couronne large et pleine » = `crownRadiusXZ` + nombre de
+ *  branches + jitter + tropisme BAS/modéré, pas tropisme haut. */
+function tropismDir(pos: Vec3, center: Vec3, species: TreeSpecies): Vec3 {
+  const outward = envelopeOutward(pos, center, species);
+  return species.domeCrown ? clampOutwardUp(outward) : outward;
+}
+
 function pushNode(nodes: SkeletonNode[], position: Vec3, radius: number, parent: number, depth: number): number {
   nodes.push({ position, radius, parent, depth });
   return nodes.length - 1;
@@ -193,12 +229,15 @@ function growBranchChain(
   let parent = startIdx;
   const chain = [startIdx];
   for (let i = 1; i <= species.branchSegments; i++) {
-    const outward = envelopeOutward(pos, crownCenter, species);
+    const outward = tropismDir(pos, crownCenter, species);
     dir = normalize(add(
       scale(dir, 1 - species.tropismWeight),
       add(scale(outward, species.tropismWeight), jitter(rand, species.jitterWeight)),
     ));
+    const up = species.upwardBias ?? 0;
+    if (up > 0) dir = normalize(add(scale(dir, 1 - up), scale(WORLD_UP, up)));
     pos = add(pos, scale(dir, stepLen));
+    if (species.groundClamp && pos.y < GROUND_Y) pos = { x: pos.x, y: GROUND_Y, z: pos.z };
     const radius = lerp(baseRadius, baseRadius * TIP_RADIUS_RATIO, i / species.branchSegments);
     const idx = pushNode(nodes, pos, radius, parent, level);
     chain.push(idx);

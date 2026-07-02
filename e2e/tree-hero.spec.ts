@@ -18,7 +18,7 @@ const HERO_MODULE_PATH = "/src/scene/trees/treeBuilder.ts";
 const CAM: CamPose = { x: 0, y: 1.8, z: 6.5, yaw: Math.PI, pitch: -0.08 };
 const VIEWPORT = { width: 480, height: 360 }; // petit cadre → capture/attente rapides sous swiftshader
 // Même budget que treeBuilder.test.ts (hero UNIQUE, jamais instancié en masse).
-const HERO_TRIANGLE_BUDGET = 20_000;
+const HERO_TRIANGLE_BUDGET = 26_000;
 // Ratio de pixels différents mini entre deux graines (silhouettes doivent diverger).
 const SILHOUETTE_DIFF_THRESHOLD = 0.02;
 

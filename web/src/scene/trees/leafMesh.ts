@@ -9,8 +9,6 @@ import { hashSeed } from "../../procedural.ts";
 
 /** Nombre de lames par ancre selon le palier de LOD (0 = hero, le plus dense). */
 const LEAVES_PER_ANCHOR_BY_LOD = [6, 4, 2, 1] as const; // + dense (feuillage trop clairsemé)
-const LEAF_LENGTH = 0.14; // m — feuille de hêtre stylisée, agrandie pour combler la couronne
-const LEAF_WIDTH = 0.085; // m
 /** Écart angulaire entre les lames d'un même spray, autour de l'axe de pousse. */
 const SPRAY_SPREAD_ANGLE = 0.6; // rad
 
@@ -25,15 +23,24 @@ export const SPRAY_CAPTURE_RADIUS = 0.3;
  *  — donne un peu de volume vu de biais sans faire sortir les lames du cadrage. */
 const ATLAS_SPRAY_DEPTH_JITTER = 0.4;
 
-/** Silhouette locale d'une lame (x = largeur, y = longueur depuis la base attachée à la brindille). */
-const LEAF_OUTLINE: readonly (readonly [number, number])[] = [
-  [0, 0],
-  [0.55, 0.28],
-  [0.65, 0.6],
-  [0, 1],
-  [-0.65, 0.6],
-  [-0.55, 0.28],
-];
+/** Une forme de feuille : silhouette locale (x = largeur, y = longueur depuis la
+ *  base attachée à la brindille, triangulée en éventail depuis le point (0,0))
+ *  + dimensions en mètres. */
+export type LeafShape = {
+  readonly outline: readonly (readonly [number, number])[];
+  readonly length: number;
+  readonly width: number;
+};
+export type LeafShapeName = "hetre" | "ovale" | "ronde" | "lanceolee";
+export const DEFAULT_LEAF_SHAPE: LeafShapeName = "hetre";
+
+/** Bibliothèque de formes de feuilles sélectionnables (banc de générateur). */
+export const LEAF_SHAPES: Record<LeafShapeName, LeafShape> = {
+  hetre: { length: 0.18, width: 0.11, outline: [[0, 0], [0.30, 0.12], [0.48, 0.38], [0.42, 0.68], [0, 1], [-0.42, 0.68], [-0.48, 0.38], [-0.30, 0.12]] },
+  ovale: { length: 0.16, width: 0.15, outline: [[0, 0], [0.38, 0.14], [0.58, 0.45], [0.5, 0.8], [0, 1], [-0.5, 0.8], [-0.58, 0.45], [-0.38, 0.14]] },
+  ronde: { length: 0.14, width: 0.16, outline: [[0, 0], [0.45, 0.13], [0.63, 0.45], [0.5, 0.8], [0.15, 1], [-0.15, 1], [-0.5, 0.8], [-0.63, 0.45], [-0.45, 0.13]] },
+  lanceolee: { length: 0.26, width: 0.07, outline: [[0, 0], [0.18, 0.22], [0.26, 0.5], [0.18, 0.78], [0, 1], [-0.18, 0.78], [-0.26, 0.5], [-0.18, 0.22]] },
+};
 
 export type LeafMeshResult = { readonly geometry: THREE.BufferGeometry; readonly triangleCount: number };
 
@@ -68,16 +75,17 @@ function leafBasis(anchor: LeafAnchor, sprayAngle: number) {
 
 function pushLeaf(
   positions: number[], normals: number[], uvs: number[],
-  anchor: LeafAnchor, index: number, count: number,
+  anchor: LeafAnchor, index: number, count: number, shape: LeafShape,
 ): void {
   const sprayAngle = count > 1 ? (index - (count - 1) / 2) * SPRAY_SPREAD_ANGLE : 0;
   const { right, lengthAxis, faceNormal } = leafBasis(anchor, sprayAngle);
   const base = toVector3(anchor.position);
-  for (let i = 1; i < LEAF_OUTLINE.length - 1; i++) {
-    const tri = [LEAF_OUTLINE[0], LEAF_OUTLINE[i], LEAF_OUTLINE[i + 1]].map(([lx, ly]) => ({
+  const { outline } = shape;
+  for (let i = 1; i < outline.length - 1; i++) {
+    const tri = [outline[0], outline[i], outline[i + 1]].map(([lx, ly]) => ({
       p: base.clone()
-        .addScaledVector(right, lx * LEAF_WIDTH * anchor.scale)
-        .addScaledVector(lengthAxis, ly * LEAF_LENGTH * anchor.scale),
+        .addScaledVector(right, lx * shape.width * anchor.scale)
+        .addScaledVector(lengthAxis, ly * shape.length * anchor.scale),
       n: faceNormal,
       u: lx * 0.5 + 0.5,
       v: ly,
@@ -87,14 +95,17 @@ function pushLeaf(
 }
 
 /** Feuillage complet : `leavesPerAnchorForLod(lod)` lames par ancre du
- *  squelette, fusionnées en une seule géométrie non indexée. */
-export function buildFoliageGeometry(anchors: readonly LeafAnchor[], lod = 0): LeafMeshResult {
+ *  squelette, de la forme `shapeName`, fusionnées en une seule géométrie non indexée. */
+export function buildFoliageGeometry(
+  anchors: readonly LeafAnchor[], lod = 0, shapeName: LeafShapeName = DEFAULT_LEAF_SHAPE,
+): LeafMeshResult {
   const perAnchor = leavesPerAnchorForLod(lod);
+  const shape = LEAF_SHAPES[shapeName];
   const positions: number[] = [];
   const normals: number[] = [];
   const uvs: number[] = [];
   for (const anchor of anchors) {
-    for (let i = 0; i < perAnchor; i++) pushLeaf(positions, normals, uvs, anchor, i, perAnchor);
+    for (let i = 0; i < perAnchor; i++) pushLeaf(positions, normals, uvs, anchor, i, perAnchor, shape);
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));

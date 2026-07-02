@@ -18,19 +18,21 @@
 // main.ts/cemetery.ts partagés) — la mission 09 l'étend plutôt que d'en
 // dupliquer un second, même contrainte de partition.
 import * as THREE from "three";
-import { BEECH_SPECIES, growSkeleton, type TreeSkeleton } from "./skeleton.ts";
+import { BEECH_SPECIES, growSkeleton, type TreeSkeleton, type TreeSpecies } from "./skeleton.ts";
 import { buildBarkGeometry } from "./tubeMesh.ts";
-import { buildFoliageGeometry } from "./leafMesh.ts";
+import { buildFoliageGeometry, type LeafShapeName } from "./leafMesh.ts";
 import { addWindWeightAttribute, applyWind, RIGID_TREE_WIND_POOL, setWindTime, SOFT_TREE_WIND_POOL } from "../wind.ts";
 import { bakeNoiseTextures, NOISE_SAMPLE_GLSL, type BakedNoiseTextures } from "../noiseBake.ts";
 import { buildFoliageCards } from "./foliageCards.ts";
+import { buildCloudFoliage } from "./cloudFoliage.ts";
 import { getOrCaptureFoliageAtlas } from "./atlasCapture.ts";
 
 const BARK_BASE_COLOR = 0x6b5642;
 const BARK_ROUGHNESS = 0.95;
-const BARK_CREVICE_DARKEN = 0.55; // multiplicateur de couleur dans les creux (bruit ridged bas)
-const BARK_NOISE_TILE_U = 3; // répétitions du bruit d'écorce autour du tronc (u = angle)
-const BARK_NOISE_TILE_V = 6; // répétitions le long des branches (v)
+const BARK_CREVICE_DARKEN = 0.4; // multiplicateur de couleur dans les creux (bruit ridged bas) — + sombre = crevasses marquées
+const BARK_RIDGE_LIGHTEN = 1.15; // éclaircit les reliefs (ridged haut) → contraste = relief d'écorce lisible
+const BARK_NOISE_TILE_U = 4; // répétitions du bruit d'écorce autour du tronc (u = angle)
+const BARK_NOISE_TILE_V = 10; // répétitions le long des branches (v) — + de stries verticales fines
 const FOLIAGE_COLOR = 0x4c7a34;
 const FOLIAGE_ROUGHNESS = 0.85;
 /** Résolution du bruit bâké : un seul hero à la fois → pas besoin de la
@@ -65,8 +67,9 @@ export type TreeBuild = {
  *  cartes alpha-testées bon marché posées aux ancres (mission 09, remplace
  *  entièrement le feuillage réel) ; "hybrid" = les deux couches superposées
  *  (silhouette de cartes + détail de vraies feuilles), pour les arbres les
- *  plus proches quand ils sont instanciés en masse (mission 10). */
-export type FoliageMode = "mesh" | "cards" | "hybrid";
+ *  plus proches quand ils sont instanciés en masse (mission 10) ; "cloud" =
+ *  gros blobs low-poly stylisés (cloudFoliage.ts), canopée « dessin ». */
+export type FoliageMode = "mesh" | "cards" | "hybrid" | "cloud";
 
 export type BuildTreeOptions = {
   readonly lod?: number;
@@ -74,6 +77,15 @@ export type BuildTreeOptions = {
   /** Requis uniquement pour la PREMIÈRE capture d'atlas (foliageMode !== "mesh") ;
    *  ignoré une fois l'atlas mis en cache (cf. atlasCapture.ts). */
   readonly renderer?: THREE.WebGLRenderer;
+  /** Override PARTIEL des paramètres d'espèce (banc de générateur : tree-generator.html).
+   *  Absent en prod → `BEECH_SPECIES` inchangé ; les champs fournis écrasent les défauts. */
+  readonly species?: Partial<TreeSpecies>;
+  /** Couleur du tronc/écorce (défaut `BARK_BASE_COLOR`). */
+  readonly barkColor?: number;
+  /** Forme des feuilles en mode "mesh"/"hybrid" (défaut hêtre, cf. leafMesh.ts). */
+  readonly leafShape?: LeafShapeName;
+  /** Mode "cloud" : ombrage lissé (radial) au lieu des facettes (défaut facetté). */
+  readonly cloudSmooth?: boolean;
 };
 
 /** Injecte les uniforms/varyings du bruit d'écorce dans le shader — chaîné
@@ -92,13 +104,13 @@ function injectBarkNoise(shader: Parameters<THREE.Material["onBeforeCompile"]>[0
     `#include <color_fragment>
     vec2 _barkUv = fract(vBarkUv * vec2(${BARK_NOISE_TILE_U.toFixed(1)}, ${BARK_NOISE_TILE_V.toFixed(1)}));
     float _barkRidged = sampleBakedRidged(_barkUv);
-    diffuseColor.rgb *= mix(${BARK_CREVICE_DARKEN.toFixed(3)}, 1.0, _barkRidged);`,
+    diffuseColor.rgb *= mix(${BARK_CREVICE_DARKEN.toFixed(3)}, ${BARK_RIDGE_LIGHTEN.toFixed(3)}, _barkRidged);`,
   );
 }
 
 /** Matériau d'écorce : vent rigide (wind.ts) + bruit d'écorce bâké (noiseBake.ts). */
-function buildBarkMaterial(noiseTex: BakedNoiseTextures): THREE.Material {
-  const base = new THREE.MeshStandardMaterial({ color: BARK_BASE_COLOR, roughness: BARK_ROUGHNESS });
+function buildBarkMaterial(noiseTex: BakedNoiseTextures, color = BARK_BASE_COLOR): THREE.Material {
+  const base = new THREE.MeshStandardMaterial({ color, roughness: BARK_ROUGHNESS });
   const material = applyWind(base, { pool: RIGID_TREE_WIND_POOL });
   const windCompile = material.onBeforeCompile;
   material.onBeforeCompile = (...args) => {
@@ -130,8 +142,8 @@ type FoliageLayer = {
 };
 
 /** Couche "vraies feuilles" (leafMesh.ts) — comportement historique, inchangé. */
-function buildMeshFoliageLayer(skeleton: TreeSkeleton, lod: number): FoliageLayer {
-  const result = buildFoliageGeometry(skeleton.anchors, lod);
+function buildMeshFoliageLayer(skeleton: TreeSkeleton, lod: number, leafShape?: LeafShapeName): FoliageLayer {
+  const result = buildFoliageGeometry(skeleton.anchors, lod, leafShape);
   addWindWeightAttribute(result.geometry, SOFT_TREE_WIND_POOL);
   const material = buildFoliageMaterial();
   const mesh = new THREE.Mesh(result.geometry, material);
@@ -157,13 +169,28 @@ function buildCardsFoliageLayer(skeleton: TreeSkeleton, seed: number, renderer: 
   };
 }
 
+/** Couche « nuage » (cloudFoliage.ts) — blobs low-poly stylisés, aucun atlas ni
+ *  renderer requis. `cardCount` réutilisé pour le nombre de blobs (stats). */
+function buildCloudFoliageLayer(skeleton: TreeSkeleton, seed: number, smooth?: boolean): FoliageLayer {
+  const cloud = buildCloudFoliage(skeleton.anchors, seed, smooth);
+  return {
+    mesh: cloud.mesh,
+    triangleCount: cloud.triangleCount,
+    leafCount: skeleton.anchors.length,
+    cardCount: cloud.cloudCount,
+    dispose: cloud.dispose,
+  };
+}
+
 /** Sélectionne la/les couche(s) de feuillage selon `mode` (API stable :
  *  `foliageMesh` reste toujours un THREE.Mesh, quel que soit le mode). */
 function buildFoliageLayer(
-  skeleton: TreeSkeleton, seed: number, lod: number, mode: FoliageMode, renderer: THREE.WebGLRenderer | undefined,
+  skeleton: TreeSkeleton, seed: number, lod: number, mode: FoliageMode,
+  renderer: THREE.WebGLRenderer | undefined, leafShape?: LeafShapeName, cloudSmooth?: boolean,
 ): FoliageLayer {
   if (mode === "cards") return buildCardsFoliageLayer(skeleton, seed, renderer);
-  const meshLayer = buildMeshFoliageLayer(skeleton, lod);
+  if (mode === "cloud") return buildCloudFoliageLayer(skeleton, seed, cloudSmooth);
+  const meshLayer = buildMeshFoliageLayer(skeleton, lod, leafShape);
   if (mode === "mesh") return meshLayer;
   // "hybrid" : silhouette de cartes + détail de vraies feuilles superposés.
   const cardsLayer = buildCardsFoliageLayer(skeleton, seed, renderer);
@@ -188,15 +215,16 @@ function buildFoliageLayer(
 export function buildTree(seed: number, opts: BuildTreeOptions = {}): TreeBuild {
   const lod = opts.lod ?? 0;
   const foliageMode = opts.foliageMode ?? "mesh";
-  const skeleton = growSkeleton(BEECH_SPECIES, seed);
+  const species = opts.species ? { ...BEECH_SPECIES, ...opts.species } : BEECH_SPECIES;
+  const skeleton = growSkeleton(species, seed);
   const noiseTex = bakeNoiseTextures(seed, NOISE_RESOLUTION);
 
   const barkResult = buildBarkGeometry(skeleton, lod);
   addWindWeightAttribute(barkResult.geometry, RIGID_TREE_WIND_POOL);
-  const barkMaterial = buildBarkMaterial(noiseTex);
+  const barkMaterial = buildBarkMaterial(noiseTex, opts.barkColor);
   const bark = new THREE.Mesh(barkResult.geometry, barkMaterial);
 
-  const foliage = buildFoliageLayer(skeleton, seed, lod, foliageMode, opts.renderer);
+  const foliage = buildFoliageLayer(skeleton, seed, lod, foliageMode, opts.renderer, opts.leafShape, opts.cloudSmooth);
 
   const group = new THREE.Group();
   group.add(bark, foliage.mesh);
