@@ -80,8 +80,9 @@ async function runClusterTest(c: HTMLCanvasElement) {
   ground.receiveShadow = true;
   scene.add(ground);
 
-  // Clairière au centre, à ~9 m devant la caméra.
-  const cluster: ClusterInfo = { x: 0, z: 9, chunk: 0, propKind: "tree" };
+  // Clairière au centre, à ~9 m devant la caméra. Centre ouvert (pas d'arbre) :
+  // le concept a une clairière dégagée avec les tombes en arc.
+  const cluster: ClusterInfo = { x: 0, z: 9, chunk: 0, propKind: "flat" };
   const frame: Frame = { entrance: { x: 0, z: 0 }, rotY: 0 };
   const biome = await buildClusterBiome(cluster, frame, undefined, "test-company");
   scene.add(biome);
@@ -95,11 +96,19 @@ async function runClusterTest(c: HTMLCanvasElement) {
     scene.add(stone);
   }
 
-  // Herbe bordant la clairière (emprise réduite → le vert ne domine pas le cadre),
-  // sauf le disque de terre central.
+  // Herbe HAUTE bordant la clairière, exclue du disque de terre ET de l'allée
+  // centrale (l'allée reste en terre nue jusqu'au fer à cheval).
+  const PATH_HALF = 1.4;
   const grass = await GrassField.create(
     "test-company", 2, frame, 16, 16, 0, 16, undefined,
-    { x: cluster.x, z: cluster.z, r: EARTH_RADIUS },
+    {
+      heightScale: 1.9,
+      exclude: (x, z) => {
+        const inDisk = (x - cluster.x) ** 2 + (z - cluster.z) ** 2 < EARTH_RADIUS * EARTH_RADIUS;
+        const inPath = Math.abs(x - cluster.x) < PATH_HALF && z < cluster.z;
+        return inDisk || inPath;
+      },
+    },
   );
   if (grass) scene.add(grass.mesh);
 

@@ -34,6 +34,8 @@ const BUSH_COUNT_MAX = 16;
 const BUSH_SCALE_MIN = 0.9;
 const BUSH_SCALE_RANGE = 0.6;
 const BUSH_RING_JITTER = 0.8;
+const BUSH_DESAT = 0.4;                // 0..1 : mélange vers le gris (désature)
+const BUSH_DARKEN = 0.55;              // facteur multiplicatif de couleur (assombrit)
 
 // Prop central (monument)
 const PROP_TREE_SCALE_MIN = 2.6;
@@ -196,9 +198,11 @@ async function buildVaultTrees(group: THREE.Group, cl: Clearing, rand: () => num
   }
 }
 
-/** Fer à cheval de buissons, juste derrière les tombes. */
-async function buildBushes(group: THREE.Group, cl: Clearing, rand: () => number, terrain: TerrainChunk | undefined) {
-  const sources = await Promise.all(BUSH_PATHS.map((p) => loadGltf(p)));
+/** Fer à cheval de buissons, juste derrière les tombes (assombris/désaturés). */
+async function buildBushes(group: THREE.Group, cl: Clearing, rand: () => number, terrain: TerrainChunk | undefined, mats: THREE.Material[]) {
+  const raw = await Promise.all(BUSH_PATHS.map((p) => loadGltf(p)));
+  // Une variante assombrie/désaturée par source (matériaux clonés → partagés par ses clones).
+  const sources = raw.map((src) => darkenClone(src, mats));
   const count = BUSH_COUNT_MIN + Math.floor(rand() * (BUSH_COUNT_MAX - BUSH_COUNT_MIN + 1));
   const span = 2 * Math.PI - 2 * BUSH_OPEN_HALF;
   const startA = cl.openAng + BUSH_OPEN_HALF;
@@ -213,6 +217,25 @@ async function buildBushes(group: THREE.Group, cl: Clearing, rand: () => number,
     clone.scale.setScalar(BUSH_SCALE_MIN + rand() * BUSH_SCALE_RANGE);
     group.add(clone);
   }
+}
+
+/** Clone un GLTF en clonant/assombrissant/désaturant ses matériaux (sans toucher au cache). */
+function darkenClone(src: THREE.Group, mats: THREE.Material[]): THREE.Group {
+  const clone = src.clone(true);
+  clone.traverse((obj) => {
+    const m = obj as THREE.Mesh;
+    if (!m.isMesh) return;
+    const base = Array.isArray(m.material) ? m.material[0] : m.material;
+    const mat = base.clone() as THREE.MeshStandardMaterial;
+    if (mat.color) {
+      // Désature vers son gris puis assombrit → mur vert sombre (baisse green/canopyTop).
+      const g = mat.color.r * 0.299 + mat.color.g * 0.587 + mat.color.b * 0.114;
+      mat.color.lerp(new THREE.Color(g, g, g), BUSH_DESAT).multiplyScalar(BUSH_DARKEN);
+    }
+    m.material = mat;
+    mats.push(mat);
+  });
+  return clone;
 }
 
 /** Monument central selon propKind. */
@@ -279,7 +302,7 @@ async function addCluster(group: THREE.Group, cluster: ClusterInfo, frame: Frame
   buildEarthDisk(group, cl, geos, mats);
   await buildPathAndGate(group, cl, rand, geos, mats);
   await buildVaultTrees(group, cl, rand, terrain);
-  await buildBushes(group, cl, rand, terrain);
+  await buildBushes(group, cl, rand, terrain, mats);
   await buildProp(group, cluster, cl, rand, terrain);
 }
 
