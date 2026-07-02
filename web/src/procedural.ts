@@ -18,6 +18,10 @@ export type ChunkKind = "row" | "cluster";
 export type Placement = { x: number; z: number; rotY: number; chunk: number; kind: ChunkKind };
 /** Tranche [start, end[ en Z portée par un chunk — contigües, sans trou ni chevauchement. */
 export type ChunkRange = { start: number; end: number };
+/** Segment de chemin (épine ou bras), repère local du cimetière — peint en
+ *  terre battue dans la splat map du sol (scene/grass.ts), pas juste posé en
+ *  décor : le visiteur voit où marcher. */
+export type PathSegment = { x0: number; z0: number; x1: number; z1: number };
 /** Prop caractéristique d'un cluster (mini-biome, phase 4) : méga-arbre, rocher-falaise, ou rien. */
 export type ClusterPropKind = "tree" | "rocks" | "flat";
 /**
@@ -42,6 +46,8 @@ export type CemeteryLayout = {
   /** Étendue en Z de chaque chunk, dans l'ordre des index. */
   chunkRanges: ChunkRange[];
   clusters: ClusterInfo[];
+  /** Épine (x = 0) + un segment par bras (rangée ou cluster) — pour peindre le chemin. */
+  pathSegments: PathSegment[];
 };
 
 const PLOT_WIDTH_BASE = 30; // largeur mini garantissant qu'aucun bras ne sorte du couloir
@@ -154,6 +160,7 @@ export function cemeteryLayout(companyId: string, count: number): CemeteryLayout
       chunkCount: 1,
       chunkRanges: [{ start: 0, end: END_MARGIN }],
       clusters: [],
+      pathSegments: [],
     };
   }
 
@@ -161,6 +168,7 @@ export function cemeteryLayout(companyId: string, count: number): CemeteryLayout
 
   const placements: Placement[] = [];
   const clusters: ClusterInfo[] = [];
+  const pathSegments: PathSegment[] = [];
   const branchZs: number[] = [];
   let z = 0;
   let branchIndex = 0;
@@ -178,6 +186,9 @@ export function cemeteryLayout(companyId: string, count: number): CemeteryLayout
     const remaining = count - placements.length;
     const isCluster = rand() < clusterRatio;
 
+    // Bras du chemin, de l'épine (x=0) vers la rangée ou le cluster.
+    pathSegments.push({ x0: 0, z0: z, x1: dirX * armLength, z1: z + dirZ * armLength });
+
     if (isCluster) {
       const cx = dirX * armLength;
       const cz = z + dirZ * armLength;
@@ -194,5 +205,28 @@ export function cemeteryLayout(companyId: string, count: number): CemeteryLayout
   const plotDepth = z + BRANCH_Z_SPREAD_HALF + END_MARGIN;
   const chunkCount = Math.floor((branchIndex - 1) / BRANCHES_PER_CHUNK) + 1;
   const chunkRanges = buildChunkRanges(branchZs, chunkCount, plotDepth);
-  return { plotWidth, plotDepth, placements, chunkCount, chunkRanges, clusters };
+  // Épine : de l'entrée jusqu'à la dernière ramification.
+  pathSegments.unshift({ x0: 0, z0: 0, x1: 0, z1: z });
+  return { plotWidth, plotDepth, placements, chunkCount, chunkRanges, clusters, pathSegments };
+}
+
+/** Distance d'un point (repère local) au segment [a,b] — même principe que world.ts. */
+function distanceToSegment(x: number, z: number, x0: number, z0: number, x1: number, z1: number): number {
+  const dx = x1 - x0;
+  const dz = z1 - z0;
+  const len2 = dx * dx + dz * dz || 1;
+  let t = ((x - x0) * dx + (z - z0) * dz) / len2;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(x - (x0 + dx * t), z - (z0 + dz * t));
+}
+
+/** Distance d'un point (repère local du cimetière) au chemin (épine + bras) le
+ *  plus proche — utilisé pour peindre la terre battue dans la splat map (scene/grass.ts). */
+export function distanceToPath(segments: PathSegment[], x: number, z: number): number {
+  let min = Infinity;
+  for (const s of segments) {
+    const d = distanceToSegment(x, z, s.x0, s.z0, s.x1, s.z1);
+    if (d < min) min = d;
+  }
+  return min;
 }

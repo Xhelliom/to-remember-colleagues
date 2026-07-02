@@ -3,9 +3,9 @@
 // de cemetery.ts pour rester sous la limite de 500 lignes par fichier.
 import type * as THREE from "three";
 import type { Ambiance } from "../ambiance.ts";
-import type { CemeteryLayout, ChunkRange } from "../procedural.ts";
-import type { Frame } from "../worldLayout.ts";
-import { buildGroundMaterial } from "./grass.ts";
+import { distanceToPath, type CemeteryLayout, type ChunkRange } from "../procedural.ts";
+import { toLocal, type Frame } from "../worldLayout.ts";
+import { buildGroundMaterial, PATH_HALF_WIDTH } from "./grass.ts";
 import { GrassField, shouldHaveGrass } from "./grassField.ts";
 import { TerrainChunk } from "./terrain.ts";
 import { VegetationInstances } from "./vegetation.ts";
@@ -36,12 +36,18 @@ export async function buildChunkMeshes(
   // dépasse le mur d'enceinte.
   const chunkWidth = reach * 2;
   const clustersInChunk = layout.clusters.filter((c) => c.chunk === index);
-  const mat = buildGroundMaterial(companyId, karma, ambiance.seasonKey, reach);
+  const mat = buildGroundMaterial(companyId, karma, ambiance.seasonKey, reach, layout.pathSegments, range.start, range.end);
   const terrain = new TerrainChunk(companyId, frame, chunkWidth, layout.plotDepth, range.start, range.end, mat);
 
   const [grass, veg, biomes] = await Promise.all([
     shouldHaveGrass(karma, ambiance.seasonKey)
-      ? GrassField.create(companyId, karma, frame, chunkWidth, layout.plotDepth, range.start, range.end, terrain)
+      ? GrassField.create(companyId, karma, frame, chunkWidth, layout.plotDepth, range.start, range.end, terrain, {
+          // Pas d'herbe sur le chemin peint dans la splat (sol nu cohérent avec la texture).
+          exclude: (wx, wz) => {
+            const local = toLocal(frame, { x: wx, z: wz });
+            return distanceToPath(layout.pathSegments, local.x, local.z) < PATH_HALF_WIDTH;
+          },
+        })
       : Promise.resolve(null),
     VegetationInstances.create(companyId, frame, chunkWidth, layout.plotDepth, range.start, range.end, terrain),
     ClusterBiomes.create(companyId, frame, terrain, clustersInChunk),

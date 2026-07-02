@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cemeteryLayout, hashSeed } from "./procedural.ts";
+import { cemeteryLayout, distanceToPath, hashSeed } from "./procedural.ts";
 
 const GRAVE_SPACING = 2.4; // doit rester en phase avec la constante de procedural.ts
 const CLUSTER_RADIUS = 3; // idem
@@ -117,6 +117,41 @@ describe("cemeteryLayout (chemin ramifié, plan cimetière)", () => {
     const ratio = clusters / (rows + clusters);
     expect(ratio).toBeGreaterThan(0.25);
     expect(ratio).toBeLessThan(0.85);
+  });
+
+  it("expose un chemin (épine + un segment par ramification) pour peindre le sol", () => {
+    const { pathSegments } = cemeteryLayout("path", 150);
+    // Au moins l'épine + une ramification pour 150 tombes.
+    expect(pathSegments.length).toBeGreaterThan(1);
+    // L'épine (premier segment) part de l'entrée (0,0).
+    expect(pathSegments[0]).toMatchObject({ x0: 0, z0: 0 });
+    // Chaque bras part de l'épine (x = 0).
+    for (const seg of pathSegments.slice(1)) expect(seg.x0).toBe(0);
+  });
+
+  it("chemin vide (aucune tombe) : pas de segment", () => {
+    expect(cemeteryLayout("empty", 0).pathSegments).toEqual([]);
+  });
+});
+
+describe("distanceToPath", () => {
+  const segments = [{ x0: 0, z0: 0, x1: 0, z1: 10 }, { x0: 0, z0: 5, x1: 4, z1: 8 }];
+
+  it("est nulle sur le chemin", () => {
+    expect(distanceToPath(segments, 0, 5)).toBeCloseTo(0);
+  });
+
+  it("mesure la distance perpendiculaire au segment le plus proche", () => {
+    expect(distanceToPath(segments, 2, 0)).toBeCloseTo(2);
+  });
+
+  it("se limite au segment (pas de prolongement infini)", () => {
+    // Au-delà de l'extrémité (0,10) de l'épine, la distance inclut le dépassement en Z.
+    expect(distanceToPath(segments, 0, 15)).toBeCloseTo(5);
+  });
+
+  it("renvoie Infinity si aucun segment", () => {
+    expect(distanceToPath([], 0, 0)).toBe(Infinity);
   });
 });
 
