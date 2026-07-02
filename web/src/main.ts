@@ -82,7 +82,8 @@ async function runClusterTest(c: HTMLCanvasElement) {
 
   // Clairière au centre, à ~9 m devant la caméra. Centre ouvert (pas d'arbre) :
   // le concept a une clairière dégagée avec les tombes en arc.
-  const cluster: ClusterInfo = { x: 0, z: 9, chunk: 0, propKind: "flat" };
+  // approach = (0,0) : le visiteur (caméra) arrive de l'entrée vers le centre.
+  const cluster: ClusterInfo = { x: 0, z: 9, chunk: 0, propKind: "flat", approach: { x: 0, z: 0 } };
   const frame: Frame = { entrance: { x: 0, z: 0 }, rotY: 0 };
   const biome = await buildClusterBiome(cluster, frame, undefined, "test-company");
   scene.add(biome);

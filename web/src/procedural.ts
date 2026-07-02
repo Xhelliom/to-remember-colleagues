@@ -20,8 +20,16 @@ export type Placement = { x: number; z: number; rotY: number; chunk: number; kin
 export type ChunkRange = { start: number; end: number };
 /** Prop caractéristique d'un cluster (mini-biome, phase 4) : méga-arbre, rocher-falaise, ou rien. */
 export type ClusterPropKind = "tree" | "rocks" | "flat";
-/** Centre d'un rond-point de cluster, pour la clôture (3.2) et le prop de mini-biome (phase 4). */
-export type ClusterInfo = { x: number; z: number; chunk: number; propKind: ClusterPropKind };
+/**
+ * Centre d'un rond-point de cluster, pour la clôture (3.2) et le mini-biome (phase 4).
+ * `approach` = point d'accroche sur l'épine (là où le visiteur entre) : c'est lui qui
+ * définit l'ORIENTATION du biome (ouverture du fer à cheval, sens de l'allée et des
+ * tombes), pour un placement correct où qu'il soit dans le cimetière.
+ */
+export type ClusterInfo = {
+  x: number; z: number; chunk: number; propKind: ClusterPropKind;
+  approach: { x: number; z: number };
+};
 export type CemeteryLayout = {
   /** Largeur fixe du couloir (mur d'enceinte), juxtaposable le long de la route. */
   plotWidth: number;
@@ -174,7 +182,8 @@ export function cemeteryLayout(companyId: string, count: number): CemeteryLayout
       const cx = dirX * armLength;
       const cz = z + dirZ * armLength;
       placements.push(...placeCluster(rand, cx, cz, chunk, remaining));
-      clusters.push({ x: cx, z: cz, chunk, propKind: drawPropKind(rand) });
+      // Le bras part de l'épine (x = 0) au z courant : c'est l'accroche/entrée du cluster.
+      clusters.push({ x: cx, z: cz, chunk, propKind: drawPropKind(rand), approach: { x: 0, z } });
     } else {
       placements.push(...placeRow(rand, z, dirX, dirZ, armLength, chunk, remaining));
     }

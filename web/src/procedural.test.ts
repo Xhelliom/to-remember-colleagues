@@ -3,6 +3,7 @@ import { cemeteryLayout, hashSeed } from "./procedural.ts";
 
 const GRAVE_SPACING = 2.4; // doit rester en phase avec la constante de procedural.ts
 const CLUSTER_RADIUS = 3; // idem
+const BRANCH_ARM_MAX_LOCAL = 9; // idem (portée max d'un bras)
 const EPSILON = 1e-9;
 
 describe("cemeteryLayout (chemin ramifié, plan cimetière)", () => {
@@ -79,6 +80,19 @@ describe("cemeteryLayout (chemin ramifié, plan cimetière)", () => {
     const b = cemeteryLayout("props", 200).clusters;
     expect(a.map((c) => c.propKind)).toEqual(b.map((c) => c.propKind));
     for (const c of a) expect(["tree", "rocks", "flat"]).toContain(c.propKind);
+  });
+
+  it("porte l'accroche d'entrée du cluster sur l'épine (x = 0), déterministe (orientation du biome)", () => {
+    const a = cemeteryLayout("approach", 200);
+    const b = cemeteryLayout("approach", 200);
+    expect(a.clusters.length).toBeGreaterThan(0);
+    for (const c of a.clusters) {
+      // L'accroche est sur l'épine (x = 0) et proche du centre en Z (bras court).
+      expect(c.approach.x).toBe(0);
+      expect(Math.abs(c.approach.z - c.z)).toBeLessThanOrEqual(BRANCH_ARM_MAX_LOCAL);
+    }
+    // Déterminisme : même id → mêmes accroches.
+    expect(a.clusters.map((c) => c.approach)).toEqual(b.clusters.map((c) => c.approach));
   });
 
   it("répartit les 3 propKind dans des proportions plausibles sur N layouts (statistique)", () => {

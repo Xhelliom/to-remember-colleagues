@@ -83,7 +83,9 @@ type Clearing = {
 
 function makeClearing(frame: Frame, cluster: ClusterInfo, terrain: TerrainChunk | undefined): Clearing {
   const { x: cx, z: cz } = toWorld(frame, cluster.x, cluster.z);
-  const ex = frame.entrance.x, ez = frame.entrance.z;
+  // Entrée du biome = accroche du cluster sur l'épine (là où arrive le visiteur),
+  // PAS l'entrée routière lointaine → ouverture/allée/tombes orientées correctement.
+  const { x: ex, z: ez } = toWorld(frame, cluster.approach.x, cluster.approach.z);
   const ground = (x: number, z: number) => (terrain ? terrain.getHeightAt(x, z) : 0);
   return { cx, cz, ex, ez, openAng: Math.atan2(ez - cz, ex - cx), baseY: ground(cx, cz), ground };
 }
