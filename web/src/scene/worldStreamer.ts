@@ -8,13 +8,14 @@ import { createGrave } from "../graves.ts";
 import { graveAxes } from "../graveAxes.ts";
 import { cemeteryLayout, type CemeteryLayout } from "../procedural.ts";
 import type { WorldSlotWithCompany } from "../world.ts";
-import { distanceToSlot, toLocal, type Vec2 } from "../worldLayout.ts";
+import { distanceToSlot, toLocal, toWorld, type Vec2 } from "../worldLayout.ts";
 import { CHUNK_LOAD_RADIUS, chunksToLoad, chunksToUnload } from "../chunkStreaming.ts";
 import { buildChunkMeshes, disposeChunkMeshes, type ChunkMeshes } from "./chunkMeshes.ts";
 import { disposeObject } from "./disposeObject.ts";
 import { GrassRing } from "./grassRing.ts";
 
 const NEAR_MARGIN = 3; // tolérance pour se considérer « à » un cimetière (HUD, ajout)
+const MAX_CONCURRENT_CHUNK_LOADS = 2; // plafond global de builds de chunk simultanés (anti à-coups)
 const DEFAULT_EYE_HEIGHT = 1.7; // hauteur d'œil par défaut si `update` est appelé sans camY (LOD arbres : distance quasi 2D)
 /**
  * Anneau d'herbe centré caméra (mission 05, `scene/grassRing.ts`) — désactivé
@@ -135,9 +136,27 @@ export class WorldStreamer {
     const list = this.loaded.get(companyId);
     if (!list) return; // pas encore chargé : apparaîtra à l'approche
     list.push(colleague);
-    this.layouts.set(companyId, cemeteryLayout(companyId, list.length));
+    const layout = cemeteryLayout(companyId, list.length);
+    this.layouts.set(companyId, layout);
     const slot = this.slots.find((s) => s.id === companyId);
-    if (slot) this.rebuildLoadedGraves(slot);
+    if (!slot) return;
+    this.syncSlotDims(slot, layout);
+    // Le nouvel agencement change portées et tranches : on décharge les chunks
+    // déjà chargés (terrain, clôture, tombes) ; le streaming les reconstruit à la
+    // frame suivante, cohérents avec le nouveau layout.
+    for (const index of this.loadedChunkIndices(companyId)) this.unloadChunk(companyId, index);
+  }
+
+  /**
+   * Aligne l'emprise du slot (largeur/longueur/centre) sur l'agencement réel
+   * (nombre de collègues) : sinon `distanceToSlot`/`chunksToLoad` s'appuient sur
+   * le `graveCount` figé à la construction du monde et divergent (chunks lointains
+   * jamais chargés, tombes désalignées du terrain).
+   */
+  private syncSlotDims(slot: WorldSlotWithCompany, layout: CemeteryLayout) {
+    slot.plotWidth = layout.plotWidth;
+    slot.plotDepth = layout.plotDepth;
+    slot.plotCenter = toWorld(slot, 0, layout.plotDepth / 2);
   }
 
   updateColleague(colleague: Colleague) {
@@ -183,6 +202,9 @@ export class WorldStreamer {
     }
     const loadedIndices = this.loadedChunkIndices(slot.id);
     for (const i of chunksToLoad(cam, slot, layout.chunkRanges, loadedIndices)) {
+      // Plafond global : `pendingChunks` (partagé entre tous les slots) borne les
+      // builds simultanés ; le reste est repris à la frame suivante.
+      if (this.pendingChunks.size >= MAX_CONCURRENT_CHUNK_LOADS) break;
       void this.loadChunk(slot, layout, i);
     }
     for (const i of chunksToUnload(cam, slot, layout.chunkRanges, loadedIndices)) {
@@ -201,10 +223,16 @@ export class WorldStreamer {
 
   /** Cimetière dont on foule l'emprise réelle (rectangle largeur × longueur), à `NEAR_MARGIN` près. */
   private findNearestSlotId(cam: Vec2): string | null {
+    let nearest: string | null = null;
+    let min = Infinity;
     for (const slot of this.slots) {
-      if (distanceToSlot(slot, cam) <= NEAR_MARGIN) return slot.id;
+      const d = distanceToSlot(slot, cam);
+      if (d <= NEAR_MARGIN && d < min) {
+        min = d;
+        nearest = slot.id;
+      }
     }
-    return null;
+    return nearest;
   }
 
   /** Récupère les collègues d'un cimetière (une seule fois, jamais réinvalidé ensuite). */
@@ -213,8 +241,12 @@ export class WorldStreamer {
     try {
       const detail = await this.loader(slot.id);
       if (!this.slots.includes(slot)) return; // on a quitté le monde entre-temps
+      const layout = cemeteryLayout(slot.id, detail.colleagues.length);
       this.loaded.set(slot.id, detail.colleagues);
-      this.layouts.set(slot.id, cemeteryLayout(slot.id, detail.colleagues.length));
+      this.layouts.set(slot.id, layout);
+      // L'emprise du slot était dimensionnée sur `graveCount` (build du monde) ;
+      // on la recale sur le nombre réel de collègues chargés.
+      this.syncSlotDims(slot, layout);
     } catch {
       // ponytail: pas de backoff ; le cimetière reste vide jusqu'au prochain enterWorld.
     }
@@ -259,6 +291,9 @@ export class WorldStreamer {
       }
       this.addChunkToScene(slot.id, index, chunk);
       this.buildChunkGraves(slot, layout, index);
+    } catch {
+      // ponytail: build de chunk échoué (GLTF/terrain) — évite une unhandled
+      // rejection retentée chaque frame ; repris à la prochaine approche.
     } finally {
       this.pendingChunks.delete(key);
     }
@@ -289,16 +324,13 @@ export class WorldStreamer {
     const colleagues = this.loaded.get(slot.id)!;
     const terrain = this.loadedChunks.get(`${slot.id}:${chunkIndex}`)?.terrain;
     const now = Date.now();
-    const cos = Math.cos(slot.rotY);
-    const sin = Math.sin(slot.rotY);
     const graveColor = this.getAmbiance().graveColor;
     layout.placements.forEach((place, i) => {
       if (place.chunk !== chunkIndex) return;
       const colleague = colleagues[i];
       const grave = createGrave(colleague, graveColor, graveAxes(colleague, now));
       // Origine locale = l'entrée (z = 0 sur le chemin), pas le centre du rectangle.
-      const wx = slot.entrance.x + place.x * cos + place.z * sin;
-      const wz = slot.entrance.z - place.x * sin + place.z * cos;
+      const { x: wx, z: wz } = toWorld(slot, place.x, place.z);
       grave.position.set(wx, terrain ? terrain.getHeightAt(wx, wz) : 0, wz);
       grave.rotation.y += place.rotY + slot.rotY;
       grave.userData.companyId = slot.id;

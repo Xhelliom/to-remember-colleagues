@@ -38,7 +38,10 @@ export async function buildChunkMeshes(
   const chunkWidth = reach * 2;
   const clustersInChunk = layout.clusters.filter((c) => c.chunk === index);
   const mat = buildGroundMaterial(companyId, karma, ambiance.seasonKey, reach, layout.pathSegments, range.start, range.end);
-  const terrain = new TerrainChunk(companyId, frame, chunkWidth, layout.plotDepth, range.start, range.end, mat);
+  // chunkWidth = étendue du maillage (calée sur la clôture) ; layout.plotWidth =
+  // largeur GLOBALE du couloir, utilisée pour le fondu de bordure afin qu'il
+  // reste invariant d'un chunk à l'autre (pas de couture aux jointures).
+  const terrain = new TerrainChunk(companyId, frame, chunkWidth, layout.plotWidth, layout.plotDepth, range.start, range.end, mat);
 
   const [grass, veg, biomes] = await Promise.all([
     shouldHaveGrass(karma, ambiance.seasonKey)

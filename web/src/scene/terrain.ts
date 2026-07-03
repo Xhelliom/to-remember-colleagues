@@ -9,6 +9,7 @@ import * as THREE from "three";
 import { seededRandom } from "../graves.ts";
 import { hashSeed } from "../procedural.ts";
 import { toLocal, toWorld, type Frame } from "../worldLayout.ts";
+import { disposeObject } from "./disposeObject.ts";
 
 const CELL_SIZE = 1.5;    // taille de maille du terrain (m) — indépendante de la taille du chunk
 const AMPLITUDE = 2.0;    // amplitude max en mètres
@@ -95,7 +96,8 @@ export class TerrainChunk {
   readonly mesh: THREE.Mesh;
   private readonly seed: number;
   private readonly frame: Frame;
-  private readonly halfWidth: number;
+  private readonly halfWidth: number;   // demi-largeur du MAILLAGE (portée du chunk)
+  private readonly fadeHalf: number;    // demi-largeur du fondu de bordure (globale, invariante entre chunks)
   private readonly plotDepth: number;
   private readonly zStart: number;
   private readonly zEnd: number;
@@ -103,6 +105,7 @@ export class TerrainChunk {
   constructor(
     companyId: string,
     frame: Frame,
+    chunkWidth: number,
     plotWidth: number,
     plotDepth: number,
     zStart: number,
@@ -111,22 +114,23 @@ export class TerrainChunk {
   ) {
     this.seed = hashSeed(companyId + ":terrain");
     this.frame = frame;
-    this.halfWidth = plotWidth / 2;
+    this.halfWidth = chunkWidth / 2;
+    this.fadeHalf = plotWidth / 2;
     this.plotDepth = plotDepth;
     this.zStart = zStart;
     this.zEnd = zEnd;
 
     const depth = zEnd - zStart;
     const zMid = (zStart + zEnd) / 2;
-    const segX = Math.max(1, Math.round(plotWidth / CELL_SIZE));
+    const segX = Math.max(1, Math.round(chunkWidth / CELL_SIZE));
     const segZ = Math.max(1, Math.round(depth / CELL_SIZE));
-    const geo = new THREE.PlaneGeometry(plotWidth, depth, segX, segZ);
+    const geo = new THREE.PlaneGeometry(chunkWidth, depth, segX, segZ);
     geo.rotateX(-Math.PI / 2);
 
     const pos = geo.getAttribute("position") as THREE.BufferAttribute;
     for (let iz = 0; iz <= segZ; iz++) {
       for (let ix = 0; ix <= segX; ix++) {
-        const meshLocalX = (ix / segX - 0.5) * plotWidth;
+        const meshLocalX = (ix / segX - 0.5) * chunkWidth;
         const meshLocalZ = (iz / segZ - 0.5) * depth;
         const h = this.heightAtLocal(meshLocalX, meshLocalZ + zMid);
         pos.setY(iz * (segX + 1) + ix, h);
@@ -144,7 +148,7 @@ export class TerrainChunk {
 
   private heightAtLocal(localX: number, localZ: number): number {
     const world = toWorld(this.frame, localX, localZ);
-    return terrainHeightAt(this.seed, world.x, world.z) * borderFade(localX, localZ, this.halfWidth, this.plotDepth);
+    return terrainHeightAt(this.seed, world.x, world.z) * borderFade(localX, localZ, this.fadeHalf, this.plotDepth);
   }
 
   /** Hauteur exacte (FBM + fondu de bordure) en coordonnées monde ; 0 hors de cette tranche. */
@@ -155,7 +159,7 @@ export class TerrainChunk {
   }
 
   dispose() {
-    this.mesh.geometry.dispose();
-    // Le matériau est partagé (géré par cemetery.ts) → pas de dispose ici
+    // Matériau + splatTex créés PAR chunk (chunkMeshes) → tout libérer ici.
+    disposeObject(this.mesh);
   }
 }

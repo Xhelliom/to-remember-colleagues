@@ -17,8 +17,8 @@ describe("terrainHeightAt (relief invariant à la taille, phase 0)", () => {
     // bord réel (fondu à 1 dans les deux cas), la hauteur doit être identique
     // — avant la phase 0, la fréquence d'échantillonnage dépendait de la
     // taille de la parcelle et ce test aurait échoué.
-    const small = new TerrainChunk("org-x", FRAME, 30, 60, 0, 60, mat);
-    const big = new TerrainChunk("org-x", FRAME, 30, 200, 10, 50, mat);
+    const small = new TerrainChunk("org-x", FRAME, 30, 30, 60, 0, 60, mat);
+    const big = new TerrainChunk("org-x", FRAME, 30, 30, 200, 10, 50, mat);
     expect(small.getHeightAt(2, 30)).toBe(big.getHeightAt(2, 30));
   });
 
@@ -31,7 +31,7 @@ describe("terrainHeightAt (relief invariant à la taille, phase 0)", () => {
 
 describe("TerrainChunk.getHeightAt (phase 3 : tranche [zStart, zEnd[)", () => {
   it("renvoie un sol plat hors de sa propre tranche", () => {
-    const chunk = new TerrainChunk("org-y", FRAME, 30, 120, 40, 80, mat);
+    const chunk = new TerrainChunk("org-y", FRAME, 30, 30, 120, 40, 80, mat);
     expect(chunk.getHeightAt(2, 20)).toBe(0); // avant zStart
     expect(chunk.getHeightAt(2, 100)).toBe(0); // après zEnd
     expect(chunk.getHeightAt(20, 60)).toBe(0); // hors largeur
@@ -40,10 +40,22 @@ describe("TerrainChunk.getHeightAt (phase 3 : tranche [zStart, zEnd[)", () => {
   it("aucune couture aux jointures internes : le fondu ne s'applique qu'aux vrais bords", () => {
     // zEnd de la première tranche == zStart de la seconde : la hauteur doit
     // se raccorder sans saut (le fondu de bordure ne s'applique pas ici).
-    const first = new TerrainChunk("org-z", FRAME, 30, 120, 0, 60, mat);
-    const second = new TerrainChunk("org-z", FRAME, 30, 120, 60, 120, mat);
+    const first = new TerrainChunk("org-z", FRAME, 30, 30, 120, 0, 60, mat);
+    const second = new TerrainChunk("org-z", FRAME, 30, 30, 120, 60, 120, mat);
     const a = first.getHeightAt(0, 59.999);
     const b = second.getHeightAt(0, 60.001);
     expect(Math.abs(a - b)).toBeLessThan(0.01);
+  });
+
+  it("hauteur invariante entre deux tranches de PORTÉES différentes (régression couture)", () => {
+    // Deux tranches contiguës du MÊME cimetière mais de largeurs de maillage
+    // (reach) différentes : à la jointure et près du bord latéral, le fondu de
+    // bordure doit rester identique — sinon couture visible. Il utilise la
+    // largeur GLOBALE (4e arg), pas la largeur du chunk (3e arg).
+    const narrow = new TerrainChunk("org-w", FRAME, 20, 60, 120, 0, 60, mat);
+    const wide = new TerrainChunk("org-w", FRAME, 40, 60, 120, 60, 120, mat);
+    // x=9 : dans l'ancien code, hors de la demi-largeur du chunk étroit (10) le
+    // fondu tombait à ~0 alors qu'il restait à 1 côté large → hauteurs discordantes.
+    expect(narrow.getHeightAt(9, 60)).toBe(wide.getHeightAt(9, 60));
   });
 });

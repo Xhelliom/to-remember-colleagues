@@ -79,11 +79,6 @@ export function distanceToSlot(slot: WorldSlot, p: Vec2): number {
   return Math.hypot(dx, dz);
 }
 
-/** Rayon englobant (temporaire, jusqu'au chunking réel de la phase 3). */
-export function plotReach(slot: WorldSlot): number {
-  return Math.max(slot.plotWidth, slot.plotDepth) / 2;
-}
-
 /** Construit le plan du monde à partir des cimetières (id + nombre de tombes). */
 export function worldLayout(companies: { id: string; graveCount: number }[]): WorldLayout {
   const n = companies.length;
