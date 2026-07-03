@@ -14,6 +14,8 @@ import { disposeObject } from "./scene/disposeObject.ts";
 import { FirstPersonControls, EYE_HEIGHT } from "./scene/controls.ts";
 import { selectLodTier } from "./scene/distanceLod.ts";
 import { AmbientAudio } from "./scene/ambientAudio.ts";
+import { ShadowIntegration } from "./scene/shadowIntegration.ts";
+import { pickNearestColleague, FOCUS_RADIUS } from "./scene/graveFocus.ts";
 
 const FOV = 70;
 const NEAR = 0.1;
@@ -21,7 +23,6 @@ const FAR = 400;
 const MAX_PIXEL_RATIO = 2;
 const TONE_MAPPING_EXPOSURE = 1.0;
 const MAX_DELTA = 0.05;
-const FOCUS_RADIUS = 3.2;
 const GRASS_LOD_RADIUS = 30;  // en dessous : rendu complet
 const GRASS_LOD_MED = 50;     // en dessous : rendu réduit ; au-delà : zéro
 const GRASS_LOD_MED_CAP = 400; // plafond d'instances pour le palier réduit
@@ -53,6 +54,7 @@ export class Cemetery {
   private readonly lighting = new Lighting();
   private readonly decor = new Decor();
   private readonly controls: FirstPersonControls;
+  private readonly shadowIntegration: ShadowIntegration;
   private readonly groundMat = new THREE.MeshStandardMaterial({ roughness: 1 });
   private readonly ground: THREE.Mesh;
   private readonly gravesGroup = new THREE.Group();
@@ -109,8 +111,11 @@ export class Cemetery {
     // Rendu filmique : les HDRI/émissifs (tombes hantées/bénies) saturaient sans lui.
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = TONE_MAPPING_EXPOSURE;
+    // Arbres procéduraux : injection tardive du renderer (l'init du champ `streamer` précède ce corps).
+    this.streamer.setRenderer(this.renderer);
 
     this.camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, NEAR, FAR);
+    this.shadowIntegration = new ShadowIntegration(this.camera, this.scene, this.renderer, this.lighting.key);
 
     this.sky = createSky();
     this.hdriSky = new HdriSky(this.renderer);
@@ -283,6 +288,7 @@ export class Cemetery {
     fog.color.setHex(effective.fogColor);
     fog.density = effective.fogDensity;
     this.lighting.apply(effective);
+    this.shadowIntegration.applyAmbiance(effective.keyLightColor, effective.keyLightIntensity, this.lighting.sunDirection);
     this.groundMat.color.setHex(effective.groundColor);
     // La forêt/les arches sont portées par world.ts ; ici, seulement les particules.
     this.decor.build(effective, PARTICLE_HALF, { structures: false });
@@ -382,16 +388,7 @@ export class Cemetery {
   // ---- Boucle ----
 
   private updateFocus() {
-    const cam = this.camera.position;
-    let nearest: Colleague | null = null;
-    let best = FOCUS_RADIUS;
-    for (const grave of this.gravesGroup.children) {
-      const d = Math.hypot(grave.position.x - cam.x, grave.position.z - cam.z);
-      if (d < best) {
-        best = d;
-        nearest = (grave.userData.colleague as Colleague) ?? null;
-      }
-    }
+    const nearest = pickNearestColleague(this.gravesGroup.children, this.camera.position, FOCUS_RADIUS);
     if (nearest !== this.focused) {
       this.focused = nearest;
       this.focusCb(nearest);
@@ -428,7 +425,7 @@ export class Cemetery {
     if (this.running) {
       this.controls.update(dt);
       this.updateFocus();
-      this.streamer.update({ x: this.camera.position.x, z: this.camera.position.z });
+      this.streamer.update({ x: this.camera.position.x, z: this.camera.position.z }, this.camera.position.y);
       this.publishPresence();
     }
     this.updatePeers(dt);
@@ -436,12 +433,9 @@ export class Cemetery {
     this.maybeRefreshAmbiance();
     const t = this.clock.elapsedTime;
     const cam = this.camera.position;
-    // Shadow map recalculée seulement si la cible a changé de texel ou que la
-    // scène a bougé (chunk/tombe) — autoUpdate = false, voir constructeur.
+    // Shadow map recalculée seulement au besoin — cache géré par ShadowIntegration.
     const shadowTargetMoved = this.lighting.followCamera(cam.x, cam.z);
-    if (shadowTargetMoved || this.streamer.consumeSceneDirty()) {
-      this.renderer.shadowMap.needsUpdate = true;
-    }
+    this.shadowIntegration.tick(shadowTargetMoved || this.streamer.consumeSceneDirty(), this.scene);
     for (const chunk of this.streamer.loadedChunks.values()) {
       const field = chunk.grass;
       if (field) {

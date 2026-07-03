@@ -29,6 +29,7 @@ export async function buildChunkMeshes(
   range: ChunkRange,
   karma: number,
   ambiance: Ambiance,
+  renderer?: THREE.WebGLRenderer,
 ): Promise<ChunkMeshes> {
   const reach = chunkReach(layout.placements, index, layout.plotWidth / 2);
   // Le sol (terrain/herbe/végétation) est calé sur la même portée que la
@@ -49,7 +50,7 @@ export async function buildChunkMeshes(
           },
         })
       : Promise.resolve(null),
-    VegetationInstances.create(companyId, frame, chunkWidth, layout.plotDepth, range.start, range.end, terrain),
+    VegetationInstances.create(companyId, frame, chunkWidth, layout.plotDepth, range.start, range.end, terrain, renderer),
     ClusterBiomes.create(companyId, frame, terrain, clustersInChunk),
   ]);
 

@@ -8,12 +8,22 @@ import { createGrave } from "../graves.ts";
 import { graveAxes } from "../graveAxes.ts";
 import { cemeteryLayout, type CemeteryLayout } from "../procedural.ts";
 import type { WorldSlotWithCompany } from "../world.ts";
-import { distanceToSlot, type Vec2 } from "../worldLayout.ts";
+import { distanceToSlot, toLocal, type Vec2 } from "../worldLayout.ts";
 import { CHUNK_LOAD_RADIUS, chunksToLoad, chunksToUnload } from "../chunkStreaming.ts";
 import { buildChunkMeshes, disposeChunkMeshes, type ChunkMeshes } from "./chunkMeshes.ts";
 import { disposeObject } from "./disposeObject.ts";
+import { GrassRing } from "./grassRing.ts";
 
 const NEAR_MARGIN = 3; // tolérance pour se considérer « à » un cimetière (HUD, ajout)
+const DEFAULT_EYE_HEIGHT = 1.7; // hauteur d'œil par défaut si `update` est appelé sans camY (LOD arbres : distance quasi 2D)
+/**
+ * Anneau d'herbe centré caméra (mission 05, `scene/grassRing.ts`) — désactivé
+ * par défaut : l'active sans couper l'herbe par-tranche (`GrassField`, cf.
+ * chunkMeshes.ts/grassField.ts) doublerait le rendu. Bascule prévue à
+ * l'intégration : activer ce flag ET rendre `shouldHaveGrass` toujours faux
+ * (ou équivalent) pour ne garder qu'une seule source d'herbe à la fois.
+ */
+const GRASS_RING_ENABLED = false;
 
 type ColleagueLoader = (companyId: string) => Promise<CompanyDetail>;
 
@@ -47,6 +57,11 @@ export class WorldStreamer {
   /** Vrai si un chunk/tombe a été ajouté ou retiré depuis le dernier `consumeSceneDirty()`
    *  (renderer.shadowMap.autoUpdate = false : signale qu'un recalcul d'ombre est nécessaire). */
   private sceneDirty = false;
+  /** Anneau d'herbe centré caméra (mission 05) — créé paresseusement si GRASS_RING_ENABLED. */
+  private grassRing: GrassRing | null = null;
+  /** Renderer injecté après coup (cf. setRenderer) — requis par la capture cards/impostors
+   *  des arbres procéduraux (mission 10). Absent → chemin GLTF conservé. */
+  private renderer?: THREE.WebGLRenderer;
 
   constructor(
     private readonly groups: StreamerGroups,
@@ -55,6 +70,11 @@ export class WorldStreamer {
 
   setLoader(loader: ColleagueLoader) {
     this.loader = loader;
+  }
+
+  /** Injecte le renderer (arbres procéduraux, mission 10) — à appeler avant tout chargement de chunk. */
+  setRenderer(renderer: THREE.WebGLRenderer) {
+    this.renderer = renderer;
   }
 
   /** Cimetière le plus proche (où l'on se tient) ou null si l'on est sur la route. */
@@ -66,13 +86,41 @@ export class WorldStreamer {
     this.slots = slots;
   }
 
-  update(cam: Vec2) {
+  update(cam: Vec2, camY = DEFAULT_EYE_HEIGHT) {
     for (const slot of this.slots) this.updateSlot(slot, cam);
+    // Recalcule le palier LOD des arbres procéduraux (hero/cards/impostors) de
+    // chaque chunk chargé — no-op si le chunk est en mode GLTF (treeLod absent).
+    for (const chunk of this.loadedChunks.values()) chunk.veg?.updateTreeLod(cam.x, camY, cam.z);
+    if (GRASS_RING_ENABLED) this.updateGrassRing(cam);
     const nearestId = this.findNearestSlotId(cam);
     if (nearestId !== this.nearestId) {
       this.nearestId = nearestId;
       this.nearestCb(nearestId ? this.slots.find((s) => s.id === nearestId)!.company : null);
     }
+  }
+
+  /** Fait suivre l'anneau d'herbe (mission 05, grassRing.ts) à la caméra — hauteur
+   *  échantillonnée sur le chunk chargé sous les pieds du joueur (0 hors cimetière,
+   *  ex. sur la route du hub). Câblage minimal ; bascule complète (désactivation de
+   *  l'herbe par-tranche) différée à l'intégration, cf. GRASS_RING_ENABLED. */
+  private updateGrassRing(cam: Vec2) {
+    if (!this.grassRing) {
+      this.grassRing = GrassRing.create();
+      this.groups.grassGroup.add(this.grassRing.group);
+    }
+    this.grassRing.update(cam.x, cam.z, this.ringHeightSampler(cam));
+  }
+
+  /** Hauteur exacte dans le chunk chargé sous la caméra, sinon plat (0). */
+  private ringHeightSampler(cam: Vec2): (x: number, z: number) => number {
+    const slotId = this.findNearestSlotId(cam);
+    const slot = slotId ? this.slots.find((s) => s.id === slotId) : undefined;
+    const layout = slot ? this.layouts.get(slot.id) : undefined;
+    if (!slot || !layout) return () => 0;
+    const local = toLocal(slot, cam);
+    const index = layout.chunkRanges.findIndex((r) => local.z >= r.start && local.z < r.end);
+    const chunk = index >= 0 ? this.loadedChunks.get(`${slot.id}:${index}`) : undefined;
+    return chunk ? (x, z) => chunk.terrain.getHeightAt(x, z) : () => 0;
   }
 
   /** Lit et remet à zéro le drapeau de scène modifiée (chunk/tombe ajouté ou retiré). */
@@ -118,6 +166,11 @@ export class WorldStreamer {
     this.fetching.clear();
     this.pendingChunks.clear();
     this.nearestId = null;
+    if (this.grassRing) {
+      this.groups.grassGroup.remove(this.grassRing.group);
+      this.grassRing.dispose();
+      this.grassRing = null;
+    }
   }
 
   private updateSlot(slot: WorldSlotWithCompany, cam: Vec2) {
@@ -171,7 +224,12 @@ export class WorldStreamer {
     this.sceneDirty = true;
     this.groups.groundPlanesGroup.add(chunk.terrain.mesh);
     if (chunk.grass) this.groups.grassGroup.add(chunk.grass.mesh);
-    if (chunk.veg) for (const m of chunk.veg.meshes) this.groups.vegetationGroup.add(m);
+    if (chunk.veg) {
+      for (const m of chunk.veg.meshes) this.groups.vegetationGroup.add(m);
+      // Arbres procéduraux (mission 10) : hero/cards/impostors vivent dans treeLod.group,
+      // pas dans `meshes` (vide en mode procédural) — sans cet ajout, aucun arbre à l'écran.
+      if (chunk.veg.treeLod) this.groups.vegetationGroup.add(chunk.veg.treeLod.group);
+    }
     if (chunk.biomes) this.groups.vegetationGroup.add(chunk.biomes.group);
     this.groups.worldGroup.add(chunk.fence);
     this.loadedChunks.set(`${companyId}:${index}`, chunk);
@@ -181,7 +239,10 @@ export class WorldStreamer {
     this.sceneDirty = true;
     this.groups.groundPlanesGroup.remove(chunk.terrain.mesh);
     if (chunk.grass) this.groups.grassGroup.remove(chunk.grass.mesh);
-    if (chunk.veg) for (const m of chunk.veg.meshes) this.groups.vegetationGroup.remove(m);
+    if (chunk.veg) {
+      for (const m of chunk.veg.meshes) this.groups.vegetationGroup.remove(m);
+      if (chunk.veg.treeLod) this.groups.vegetationGroup.remove(chunk.veg.treeLod.group);
+    }
     if (chunk.biomes) this.groups.vegetationGroup.remove(chunk.biomes.group);
     this.groups.worldGroup.remove(chunk.fence);
   }
@@ -191,7 +252,7 @@ export class WorldStreamer {
     if (this.pendingChunks.has(key) || this.loadedChunks.has(key)) return;
     this.pendingChunks.add(key);
     try {
-      const chunk = await buildChunkMeshes(slot.id, slot, layout, index, layout.chunkRanges[index], slot.company.karma, this.getAmbiance());
+      const chunk = await buildChunkMeshes(slot.id, slot, layout, index, layout.chunkRanges[index], slot.company.karma, this.getAmbiance(), this.renderer);
       if (!this.slots.includes(slot)) {
         disposeChunkMeshes(chunk);
         return; // on a quitté le monde entre-temps

@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { Colleague, OfferingCounts } from "./types.ts";
 import type { GraveAxes } from "./graveAxes.ts";
+import { buildGravestone } from "./graveStone.ts";
 
 /** Générateur pseudo-aléatoire déterministe (mulberry32) à partir d'une graine. */
 export function seededRandom(seed: number): () => number {
@@ -109,32 +110,10 @@ const BASE_GEO = shared(new THREE.BoxGeometry(1.3, 0.25, 0.7)); // socle (dimens
 const CROSS_VERT_UNIT_GEO = shared(new THREE.BoxGeometry(0.26, 1, 0.18)); // hauteur : scale.y
 const CROSS_HORIZ_UNIT_GEO = shared(new THREE.BoxGeometry(1, 0.26, 0.18)); // largeur : scale.x
 const PLANE_UNIT_GEO = shared(new THREE.PlaneGeometry(1, 1)); // face/plaque gravée : scale.xy
-function roundRectShape(rounded: boolean): THREE.Shape {
-  // hw=0.5, height=1 : les courbes de Bézier sont affines-invariantes, donc
-  // `mesh.scale.set(width, height, 1)` reproduit exactement la même silhouette
-  // que si le profil avait été tracé directement à ces dimensions.
-  const shape = new THREE.Shape();
-  shape.moveTo(-0.5, 0);
-  shape.lineTo(-0.5, 0.7);
-  if (rounded) {
-    shape.quadraticCurveTo(-0.5, 1, 0, 1);
-    shape.quadraticCurveTo(0.5, 1, 0.5, 0.7);
-  } else {
-    shape.lineTo(-0.5, 1);
-    shape.lineTo(0.5, 1);
-  }
-  shape.lineTo(0.5, 0);
-  shape.lineTo(-0.5, 0);
-  return shape;
-}
+// Profil de stèle (hw=0.5, hauteur=1) : géré par `graveStone.ts` (mission 06), qui
+// produit une géométrie UNIQUE par tombe (usure/fissures dépendantes de graveSeed) —
+// plus de géométrie unitaire partagée pour "round"/"rect" (voir plus bas).
 const STELE_DEPTH = 0.18;
-const ROUND_UNIT_GEO = shared(makeSteleGeo(roundRectShape(true)));
-const RECT_UNIT_GEO = shared(makeSteleGeo(roundRectShape(false)));
-function makeSteleGeo(shape: THREE.Shape): THREE.ExtrudeGeometry {
-  const geo = new THREE.ExtrudeGeometry(shape, { depth: STELE_DEPTH, bevelEnabled: false });
-  geo.translate(0, 0, -STELE_DEPTH / 2);
-  return geo;
-}
 
 // Offrandes (issue #7) : géométrie/couleur fixes par accessoire, seule la
 // taille varie (scale) ; palette de pétales bornée → matériaux partagés.
@@ -341,7 +320,14 @@ export function createGrave(colleague: Colleague, graveHex: number, axes: GraveA
     plaque.position.set(0, 0.55, STELE_DEPTH / 2 + 0.01);
     group.add(plaque);
   } else {
-    const stone = new THREE.Mesh(type === "round" ? ROUND_UNIT_GEO : RECT_UNIT_GEO, stoneMat);
+    // Stèle procédurale usée/fissurée/moussue (issue #25, mission 06) : géométrie ET
+    // couleurs vertex propres à cette tombe (dépend de graveSeed) → matériau NON
+    // partagé (clone de stoneMat + vertexColors), la géométrie sera libérée par
+    // `disposeObject` comme tout ce qui n'est pas marqué `shared`.
+    const weathered = buildGravestone(axes, colleague.graveSeed, type === "round");
+    const steleMat = stoneMat.clone();
+    steleMat.vertexColors = true;
+    const stone = new THREE.Mesh(weathered.geometry, steleMat);
     stone.scale.set(width, height, 1);
     stone.position.y = 0.25;
     stone.castShadow = true;
