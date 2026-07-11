@@ -33,6 +33,7 @@ parcours souffre de trois défauts structurels : épine **rectiligne**, cimetiè
 | 8 | Intégrer deadfall + understory (déjà codés, non branchés) | Graphismes | ★★☆ | ½–1 j |
 | 9 | Ciel de nuit (étoiles, lune) | Graphismes | ★★☆ | ½ j |
 | 10 | Thèmes de cimetière par organisation | Procédural | ★★☆ | 1–2 j |
+| 11 | Allées vertes : végétation en bandes le long des chemins + bras ramifiés | Procédural/Parcours | ★★★ | 2 j |
 
 ---
 
@@ -283,7 +284,96 @@ parfait, le rond-point de mur toujours identique.
 - Le biome clairière (fer à cheval) est excellent — étendre sa logique d'orientation
   (`approach`) aux nouveaux props pour qu'ils fassent toujours face à l'arrivant.
 
-### 3.5 Le monde commun aussi est procédural — mais trop peu
+### 3.5 Des allées qui s'enfoncent — la végétation doit structurer, pas décorer
+
+**Le problème ressenti** : le cimetière est nu, ouvert, sans ces petites allées qui
+se glissent entre les arbres et la végétation et donnent envie de s'y enfoncer.
+Trois causes mesurables dans le code :
+
+1. **La densité est celle d'une pelouse.** `TREE_DENSITY = 0.004/m²`
+   (`vegetation.ts`) : pour une tranche typique (~100 m d'épine × ~22 m de large,
+   soit ~2 000 m²), cela fait **~8 arbres** — un arbre tous les 12 m de chemin,
+   perdus au milieu de l'herbe rase.
+2. **La dispersion est uniforme et aveugle.** `buildPlacementMatrices` /
+   `buildTreePlacements` tirent x/z uniformément dans le rectangle de la tranche :
+   la végétation **ignore totalement le chemin et les tombes** (aucun `exclude`,
+   contrairement à l'herbe) — un arbre peut pousser au milieu de l'allée ou sur
+   une sépulture. Or une allée ne se lit comme une allée que si elle est *bordée* :
+   aujourd'hui rien ne cadre le regard, donc rien ne « s'enfonce ».
+3. **Les bras sont des moignons rectilignes.** `BRANCH_ARM_MIN = 4`,
+   `BRANCH_ARM_MAX = 9` : une ramification fait 4–9 m, sans courbe ni
+   sous-ramification, et les tombes commencent à 2 m de l'épine
+   (`BRANCH_START_GAP`). Tout est visible d'un coup depuis l'axe central — aucune
+   pièce cachée, aucun seuil, aucune découverte.
+
+**Recommandations — dans l'ordre du renversement le plus important :**
+
+**a) Planter en bandes le long des chemins (le changement clé).**
+Remplacer la dispersion uniforme par un échantillonnage par rejet pondéré par
+`distanceToPath` (déjà exporté par `procedural.ts`) : probabilité **nulle** sur le
+chemin (< 1,5 m), **maximale** dans une bande à 2–6 m de part et d'autre,
+décroissante au-delà. Fonction pure `vegetationWeightAt(dPath)` testable seule,
+même graine → mêmes placements. Effet : des **murs verts** longent l'épine et les
+bras ; les rangées de tombes vivent dans des « chambres » derrière ce rideau et se
+découvrent en s'y engageant, au lieu d'être étalées à vue. Au passage, cela corrige
+le défaut actuel (arbre sur le chemin/sur une tombe) : ajouter aussi un rayon
+d'exclusion ~1,2 m autour des `placements`. Compléter la bande avec l'understory
+(2.7 — buissons/fougères, déjà codés) et des **haies** le long des bras :
+`WallType = "haie"` est déclaré dans `fence.ts` précisément pour ça, jamais câblé.
+
+**b) Des bras qui deviennent de vraies allées (topologie).**
+- **Allonger et séparer corridor/chambre** : porter `BRANCH_ARM_MAX` vers 16–20 m,
+  et réserver le premier tiers du bras au chemin seul (végétation serrée, zéro
+  tombe), les tombes regroupées au bout — l'inverse d'aujourd'hui où `placeRow`
+  aligne les tombes dès l'épine. Le bras devient : un seuil, un couloir, puis une
+  clairière de sépultures.
+- **Courber les bras** : 2–3 segments à dérive d'angle au lieu d'un seul —
+  `pathSegments` accepte déjà N segments et la peinture de splat suit sans
+  modification ; le bout du bras disparaît de la vue depuis l'épine.
+- **Sous-ramification (profondeur 2)** : autoriser un bras long à porter un
+  sous-bras — les fameuses petites allées cachées. La garantie anti-collision
+  « par construction » (1.2bis) se met à jour en dérivant `MIN_BRANCH_GAP` de la
+  portée totale (bras + sous-bras).
+- **Récompenser les impasses** : au bout des bras les plus longs, toujours quelque
+  chose — cluster/biome, banc, tombe remarquable. Une impasse vide punit la
+  curiosité ; une impasse habitée l'entraîne.
+
+**c) Tunnels et seuils végétaux.**
+- Sur le corridor des bras : arbres plantés **en vis-à-vis, inclinés l'un vers
+  l'autre** pour former une voûte — le biome clairière fait déjà exactement ça
+  (`TREE_TILT = 0.16`, `builder.ts:224`), il suffit d'appliquer la recette au
+  couloir d'approche. La grammaire `treeBuilder`/`skeleton.ts` (espèces
+  paramétrées) permet un port arqué dédié.
+- Une **pergola légère** à l'entrée des bras principaux (mini-variante de
+  `buildEntranceArch`) : franchir un seuil, même symbolique, transforme un
+  embranchement en lieu.
+
+**d) Allées en creux (le terrain participe).**
+Creuser légèrement le chemin (−0,3 à −0,5 m, `smoothstep` sur `distanceToPath`)
+et/ou épauler ses bords : même à végétation égale, un chemin encaissé « s'enfonce »
+physiquement. `TerrainChunk` peut recevoir les `pathSegments` (déjà disponibles
+dans `chunkMeshes.ts`) ; les tombes et murs suivent automatiquement via
+`getHeightAt`, et l'invariance au chunking est préservée puisque le layout est
+global et déterministe.
+
+**e) Gradient de profondeur.**
+Densité végétale et hauteur d'herbe (`heightScale` de `GrassField`, déjà exposé)
+croissantes avec `z / plotDepth` : entrée dégagée et entretenue, fond dense et
+sauvage. Combiné à la promenade chronologique (4.3), le gradient devient
+narratif : plus on s'enfonce, plus c'est ancien, ombragé, envahi.
+
+**Garde-fous perf.** Planter en bande *concentre* les instances là où elles
+portent visuellement sans faire exploser le total : budget par tranche (par ex.
+≤ 40 arbres, la chaîne `treeLod` bascule en impostors 2-triangles au-delà de
+~30 m), herbe déjà plafonnée, et l'occlusion accrue **réduit** ce qui est à
+l'écran — des murs verts sont aussi des occulteurs pour le streaming.
+
+**Tests associés** : poids de placement nul sur le chemin ; aucune instance à
+< 1,2 m d'une tombe ; déterminisme (même graine → mêmes matrices) ; continuité de
+la peinture de splat sur bras courbes et sous-bras ; hauteur des tombes = hauteur
+du terrain creusé.
+
+### 3.6 Le monde commun aussi est procédural — mais trop peu
 
 **Constat.** `worldLayout.ts` : serpentement sinusoïdal régulier
 (`MEANDER_AMP * sin(i * MEANDER_FREQ)`), paires de cimetières face à face — fonctionnel
@@ -542,8 +632,9 @@ Ce qui fait raconter « tu te souviens quand… » :
    unifiée (2.3), panneaux directionnels (4.4). C'est la première impression du jeu.
 3. **Vague « parcours »** : suivi du relief + collisions (4.1), boucle/retour (4.2),
    tri chronologique + quartiers (4.3).
-4. **Vague « variété »** : épine serpentante (3.1), jitter (3.2), thèmes (3.3),
-   clusters enrichis (3.4), ciel de nuit (2.4).
+4. **Vague « variété »** : allées vertes — végétation en bandes + bras-allées
+   ramifiés (3.5, le plus structurant de cette vague), épine serpentante (3.1),
+   jitter (3.2), thèmes (3.3), clusters enrichis (3.4), ciel de nuit (2.4).
 5. **Vague « vie du monde »** : bruits de pas + transitions d'ambiance lissées
    (5.1, 5.2 — les deux plus rentables, éligibles dès la vague 1 car indépendantes),
    puis orage complet (5.3), corps du joueur (5.4), rituels (5.5), faune (5.6),
