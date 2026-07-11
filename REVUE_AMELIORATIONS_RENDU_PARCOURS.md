@@ -388,7 +388,152 @@ de transition sonore ni visuelle ; l'enceinte se traverse (cf. 4.1).
 
 ---
 
-## 5. Ordre d'attaque suggéré
+## 5. Immersion — faire exister le monde au-delà du rendu
+
+Les sections 2–4 rendent le monde *beau* et *lisible* ; celle-ci le rend *vivant*.
+Classé du plus au moins impactant, à effort comparable.
+
+### 5.1 Le son est le chantier d'immersion le plus rentable
+
+**Constat.** `ambientAudio.ts` se limite à un souffle de vent synthétisé (bruit
+blanc filtré) modulé par la météo. Aucun `AudioListener`/`PositionalAudio` dans le
+projet : le monde 3D est **muet spatialement** — pas de pas, pas de faune, rien ne
+sonne « quelque part ».
+
+**Recommandations (dans l'ordre).**
+- **Bruits de pas selon la surface.** L'information existe déjà : `distanceToPath`
+  dit si l'on marche sur la terre battue, la splat sait si c'est herbe ou neige
+  (`seasonKey`), `nearRoad` couvre la route. Synthétiser 3–4 variantes (gravier,
+  herbe feutrée, neige crissante) comme le vent — Web Audio pur, zéro asset —
+  cadencées sur la vitesse réelle des contrôles. C'est LE retour sensoriel qui
+  ancre la première personne ; son absence se « sent » sans qu'on sache pourquoi.
+- **Sources positionnelles** (`THREE.PositionalAudio`, natif Three.js) : corbeaux
+  dans les arbres des chunks chargés (1–2 par chunk, graine du chunk), cloche très
+  lointaine côté spawn, craquements de bois près des deadfalls (2.7). Le panning
+  stéréo + l'atténuation par distance donnent la profondeur que le vent global ne
+  donnera jamais.
+- **Sonoriser les 3 axes à bout portant** : sous ~3 m d'une tombe très hantée, un
+  murmure grave presque subliminal ; près d'une bénie, un carillon ténu ; les
+  bougies d'offrandes crépitent. L'axe votes devient perceptible **avant** d'être vu.
+- **Le vent audio suit déjà la météo — le lier aussi au vent visuel** : `wind.ts`
+  expose une horloge partagée herbe/arbres ; moduler le gain du souffle sur la même
+  intensité pour que ce qu'on entend corresponde à ce qui bouge.
+
+### 5.2 Transitions d'ambiance : supprimer les « pops »
+
+**Constat.** `maybeRefreshAmbiance` (`cemetery.ts`) applique la nouvelle météo ou
+l'heure **instantanément** : ciel, brouillard et lumières sautent d'un état à
+l'autre en une frame, toutes les 5–15 min. Rien ne brise plus l'immersion qu'un
+monde qui change de couleur d'un coup.
+
+**Recommandation.** Interpoler dans la boucle : conserver `Ambiance` courante et
+cible, et lerp couleurs (fog, hemi, key, ground) + scalaires (densité, intensités)
+sur **30–60 s**. Les couleurs sont déjà des hex → `THREE.Color.lerp` ; la logique
+d'easing est une fonction pure testable (`ambianceBlend(from, to, t)`). Le
+crépuscule qui *tombe* progressivement pendant qu'on se recueille est un moment de
+jeu en soi. (Une seule vigilance : ne recalculer la shadow map qu'à pas espacés
+pendant le lerp, `autoUpdate` étant déjà à `false`.)
+
+### 5.3 Orage complet — la météo existe, pas son spectacle
+
+**Constat.** `orageux` ne fait aujourd'hui qu'assombrir l'ambiance et épaissir le
+souffle. Pas de pluie visible (la couleur `rain` des particules existe pourtant
+dans `decor.ts`), pas d'éclairs.
+
+**Recommandations.**
+- Particules de pluie par météo (le système de `decor.ts` sait déjà faire tomber
+  neige/feuilles — la pluie est le même code, vitesse verticale plus forte).
+- **Éclairs** : flash de 2–3 frames (intensité de l'`AmbientLight` + ciel blanchi),
+  puis **tonnerre décalé** de 1–4 s selon une distance fictive — le délai
+  lumière/son est un réflexe primitif qui rend l'orage réel. Web Audio : burst de
+  bruit brun filtré, pas d'asset.
+- **Ombres de nuages** par beau temps : une texture de bruit qui défile, multipliée
+  dans le shader du sol (un `onBeforeCompile` de plus dans `grass.ts`, uniform de
+  temps déjà disponible). Effet énorme sur les grandes étendues, coût quasi nul.
+
+### 5.4 Un corps pour le joueur
+
+**Constat.** La caméra glisse comme un drone : aucune oscillation de marche, FOV
+fixe, aucun poids.
+
+**Recommandations.**
+- **Head bob discret** (2–3 cm, fréquence calée sur la cadence des pas de 5.1 pour
+  que son et mouvement coïncident) + micro-roulis en strafe ; amplitude nulle à
+  l'arrêt. Option « réduire les mouvements » dans le panneau Ambiance
+  (accessibilité).
+- **FOV kick** en courant (+4–6°, lerpé) : la course se *sent* au lieu d'être un
+  simple multiplicateur de vitesse.
+- À l'interaction de recueillement (5.5) : léger abaissement de caméra — le corps
+  s'agenouille.
+
+### 5.5 Rituels : donner des gestes au recueillement
+
+**Constat.** Les emotes existent (`wave`/`pray`/`flower` dans `avatars.ts`) mais
+s'affichent en **émoji dans une bulle** — une notification, pas un geste. La
+citation du collègue (`quote`, `types.ts:31`) ne vit que dans le dialogue HUD 2D.
+
+**Recommandations.**
+- **Se recueillir** (touche near-focus) : caméra qui s'abaisse et se cale face à la
+  stèle 3–4 s, brève montée de la brume/du silence (duck du vent), emote `pray`
+  relayée aux pairs. Transforme la lecture d'une tombe en moment.
+- **Graver la citation au dos de la stèle** : même pipeline canvas que
+  `makeNameTexture`, révélée quand on fait le tour — récompense l'exploration et
+  sort la citation du HUD. (Le dialogue 2D reste pour l'édition.)
+- **Le dépôt d'offrande devient un geste** : au lieu d'un simple POST + rebuild,
+  jouer l'animation — l'objet apparaît dans la main (fixé caméra), s'incline, la
+  tombe se reconstruit *après* la pose. Trois secondes qui changent la nature de
+  l'acte.
+- **Cloche à l'arche** (interaction E) : audible par tous les visiteurs du monde
+  via la présence (#4) — un signal social diégétique (« quelqu'un entre »).
+
+### 5.6 Faune discrète — un monde qui réagit
+
+**Constat.** Seul Halloween a de la vie animée (chauves-souris, `decor.ts`). Le
+reste de l'année, rien ne bouge que l'herbe.
+
+**Recommandations (par coût croissant).**
+- **Papillons** le jour près des tombes bien entretenues, **mouches** (points
+  sombres orbitant) sur les négligées — encore l'axe entretien rendu sensible,
+  même technique que les chauves-souris existantes.
+- **Corbeaux posés** sur les murs/branches qui **s'envolent à l'approche** (< 4 m :
+  bascule posé → courbe de fuite + son 5.1). C'est le monde qui *réagit au joueur* —
+  le déclencheur d'immersion le plus fort de cette liste.
+- **Un gardien par cimetière** : un animal déterministe par graine (chat, corbeau,
+  chouette selon le thème 3.3) qui erre sur l'épine. Les habitués le reconnaissent —
+  « le chat de chez Acme ».
+
+### 5.7 Présence : des fantômes plus fantomatiques
+
+**Constat.** Les avatars (`avatars.ts`) sont des capsules translucides statiques —
+lisibles mais raides : pas d'oscillation, opacité fixe, emotes en émoji plates.
+
+**Recommandations.**
+- Flottement sinusoïdal léger (±4 cm, phase par id), opacité qui **pulse doucement**,
+  traîne de 3–4 particules s'estompant derrière le déplacement — le vocabulaire
+  visuel « fantôme » complet, trois petites modifs dans `updatePeers`.
+- La nuit, chaque visiteur porte une **lanterne** (point émissif + halo bloom 2.5) :
+  on voit de loin les lueurs des autres se déplacer entre les tombes — la plus belle
+  image « multijoueur » possible pour ce jeu, presque gratuite.
+- **Échos de visite** (optionnel, côté serveur) : rejouer en silhouettes très
+  faibles (opacité ~0,1) des trajectoires enregistrées de visiteurs passés quand le
+  salon est vide — un cimetière n'est jamais tout à fait désert.
+
+### 5.8 Événements rares et mémoire du monde
+
+Ce qui fait raconter « tu te souviens quand… » :
+- **Étoile filante** la nuit (~1 chance/min, seedée sur l'horloge) — deux points
+  émissifs et une traînée ; **halo de brume exceptionnel** certains matins.
+- **Anniversaire de départ** : le jour J (donnée déjà en base), la tombe du
+  collègue s'allume de bougies d'office et son quartier reçoit un léger surcroît de
+  lucioles — le monde se souvient tout seul, sans action utilisateur.
+- **Usure sociale des chemins** : compteur de visites par cimetière côté API →
+  élargir/renforcer la bande de terre de la splat selon la fréquentation réelle. Un
+  cimetière très visité a un chemin creusé ; un oublié se fait envahir par l'herbe.
+  La donnée sociale devient géologie.
+
+---
+
+## 6. Ordre d'attaque suggéré
 
 1. **Vague « brancher l'existant »** (le meilleur ratio gain/effort, quasi sans
    risque) : post-process dans `Cemetery` (2.1) + bloom sélectif (2.5) + deadfall/
@@ -399,6 +544,10 @@ de transition sonore ni visuelle ; l'enceinte se traverse (cf. 4.1).
    tri chronologique + quartiers (4.3).
 4. **Vague « variété »** : épine serpentante (3.1), jitter (3.2), thèmes (3.3),
    clusters enrichis (3.4), ciel de nuit (2.4).
+5. **Vague « vie du monde »** : bruits de pas + transitions d'ambiance lissées
+   (5.1, 5.2 — les deux plus rentables, éligibles dès la vague 1 car indépendantes),
+   puis orage complet (5.3), corps du joueur (5.4), rituels (5.5), faune (5.6),
+   fantômes améliorés (5.7), événements rares (5.8).
 
 Chaque chantier respecte la Definition of Done du projet : logique pure extraite et
 testée (Vitest) — offsets d'épine, tri chronologique, collisions, thèmes sont tous
