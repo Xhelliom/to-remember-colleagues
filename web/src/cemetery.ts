@@ -22,6 +22,7 @@ import { pickNearestColleague, FOCUS_RADIUS } from "./scene/graveFocus.ts";
 import { AutoExposurePass } from "./scene/post/autoExposure.ts";
 import { applyFilmGrade, createGoldenGradePass } from "./scene/post/grade.ts";
 import { createFogRenderTarget, GroundFogPass } from "./scene/post/groundFog.ts";
+import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 
 const FOV = 70;
 const NEAR = 0.1;
@@ -34,6 +35,14 @@ const TONE_MAPPING_EXPOSURE = 1.0;
 // historique (aucun test e2e du vrai jeu ne fait d'assertion pixel à ce jour,
 // mais on garde une échappatoire sûre).
 const POST_FX_PARAM = "post";
+// Bloom sélectif (chantier 2.5) : ne fait s'embraser que les émissifs forts déjà en
+// place (halo doré des tombes bénies, lueur violacée des hantées, flammes de bougies,
+// citrouilles d'Halloween — graves.ts) — le reste de la scène ne dépasse pas le seuil.
+// Seuil/force à retoucher visuellement si besoin (pas de rendu réel pour valider ici).
+const BLOOM_STRENGTH = 0.7;
+const BLOOM_RADIUS = 0.4;
+const BLOOM_THRESHOLD = 0.82;
+const BLOOM_RESOLUTION_SCALE = 0.5; // demi-résolution : coût quasi invisible (option budget du plan)
 const MAX_DELTA = 0.05;
 const GRASS_LOD_RADIUS = 30;  // en dessous : rendu complet
 const GRASS_LOD_MED = 50;     // en dessous : rendu réduit ; au-delà : zéro
@@ -138,6 +147,8 @@ export class Cemetery {
       this.composer = new EffectComposer(this.renderer, createFogRenderTarget(this.renderer));
       this.composer.addPass(new RenderPass(this.scene, this.camera));
       this.composer.addPass(new AutoExposurePass());
+      const size = this.renderer.getSize(new THREE.Vector2()).multiplyScalar(BLOOM_RESOLUTION_SCALE);
+      this.composer.addPass(new UnrealBloomPass(size, BLOOM_STRENGTH, BLOOM_RADIUS, BLOOM_THRESHOLD));
       this.gradePass = createGoldenGradePass();
       this.composer.addPass(this.gradePass);
       this.composer.addPass(new GroundFogPass(this.camera));

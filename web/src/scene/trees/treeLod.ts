@@ -152,7 +152,7 @@ export class TreeLodField {
   private readonly canopy: CanopyShellBuild | null;
 
   private constructor(
-    private readonly placements: readonly TreePlacement[],
+    readonly placements: readonly TreePlacement[],
     private readonly cardsR1: CardsBand,
     private readonly cardsR2: CardsBand,
     private readonly impostor: ImpostorMesh,

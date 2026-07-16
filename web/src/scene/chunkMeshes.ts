@@ -11,6 +11,8 @@ import { TerrainChunk } from "./terrain.ts";
 import { VegetationInstances } from "./vegetation.ts";
 import { buildChunkFence, chunkReach, disposeFence } from "./fence.ts";
 import { ClusterBiomes } from "./biomes/clairiere/builder.ts";
+import { DeadfallField } from "./deadfallField.ts";
+import { UnderstoryField } from "./trees/understoryField.ts";
 
 export type ChunkMeshes = {
   terrain: TerrainChunk;
@@ -18,6 +20,8 @@ export type ChunkMeshes = {
   veg: VegetationInstances | null;
   fence: THREE.Group;
   biomes: ClusterBiomes | null;
+  deadfall: DeadfallField | null;
+  understory: UnderstoryField | null;
 };
 
 /** Construit les maillages (terrain, herbe, végétation, clôture) d'une tranche. */
@@ -28,6 +32,7 @@ export async function buildChunkMeshes(
   index: number,
   range: ChunkRange,
   karma: number,
+  maintenance: number,
   ambiance: Ambiance,
   renderer?: THREE.WebGLRenderer,
 ): Promise<ChunkMeshes> {
@@ -63,7 +68,14 @@ export async function buildChunkMeshes(
     clustersInChunk, ambiance.scary, terrain,
   );
 
-  return { terrain, grass, veg, fence, biomes };
+  const deadfall = DeadfallField.create(
+    companyId, frame, chunkWidth, range.start, range.end, layout.pathSegments, terrain, karma, maintenance,
+  );
+  const understory = UnderstoryField.create(
+    companyId, frame, chunkWidth, range.start, range.end, layout.pathSegments, terrain, veg?.treeLod?.placements ?? [],
+  );
+
+  return { terrain, grass, veg, fence, biomes, deadfall, understory };
 }
 
 /** Libère toutes les géométries/matériaux d'une tranche. */
@@ -72,5 +84,7 @@ export function disposeChunkMeshes(chunk: ChunkMeshes) {
   chunk.grass?.dispose();
   chunk.veg?.dispose();
   chunk.biomes?.dispose();
+  chunk.deadfall?.dispose();
+  chunk.understory?.dispose();
   disposeFence(chunk.fence);
 }
