@@ -283,8 +283,9 @@ export class TreeLodField {
 
   private buildHero(i: number): void {
     const placement = this.placements[i];
-    // Hybride (LAAS) : cartes-grappes (masse feuillue dense) + vraies feuilles (détail de près).
-    const tree = buildTree(placement.seed, { foliageMode: "hybrid", renderer: this.renderer });
+    // Nuage (banc générateur) : blobs low-poly, couronne pleine par chevauchement,
+    // le meilleur match visuel au concept — remplace l'hybride cartes+vraies feuilles.
+    const tree = buildTree(placement.seed, { foliageMode: "cloud", renderer: this.renderer });
     tree.group.position.set(placement.x, placement.y, placement.z);
     tree.group.rotation.y = placement.yaw;
     tree.group.scale.setScalar(placement.scale);

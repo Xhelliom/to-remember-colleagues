@@ -19,9 +19,9 @@ import { attachDepthPrepass, buildDepthTwinMaterial, isPrepassEnabled } from "..
 const CARD_CLUSTER_CELL = 0.6;
 /** Rayon de "portée" (m) d'une feuille individuelle au-delà de son ancre —
  *  pad la carte pour couvrir tout le feuillage réel du cluster sans le rogner. */
-const LEAF_FOOTPRINT_PAD = 0.12;
-const CARD_MIN_SIZE = 0.25;
-const CARD_MAX_SIZE = 1.4;
+const LEAF_FOOTPRINT_PAD = 0.6;
+const CARD_MIN_SIZE = 1.2;
+const CARD_MAX_SIZE = 3.5;
 const CARD_ALPHA_TEST = 0.5;
 const CARD_ROUGHNESS = 0.85; // même valeur que FOLIAGE_ROUGHNESS de treeBuilder.ts
 const CARD_TILE_UV_STEP = 1 / ATLAS_GRID;

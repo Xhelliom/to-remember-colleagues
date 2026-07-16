@@ -12,7 +12,7 @@ import { clusterFoliageAnchors, type CardCluster } from "./foliageCards.ts";
 
 const CLOUD_COLOR = 0x4c7a34;
 const CLOUD_ROUGHNESS = 0.9;
-const CLOUD_DETAIL = 1; // subdivisions d'icosphère (bas = facetté « dessin »)
+const CLOUD_DETAIL = 0; // subdivisions d'icosphère (bas = facetté « dessin » + 4x moins de tris)
 const CLOUD_MIN_RADIUS = 0.55; // rayon plancher d'un blob (m)
 const CLOUD_RADIUS_SCALE = 1.7; // blob > étendue du cluster → recouvrement = canopée pleine
 const CLOUD_LUMP_AMP = 0.28; // amplitude de bosselure (0 = sphère lisse)

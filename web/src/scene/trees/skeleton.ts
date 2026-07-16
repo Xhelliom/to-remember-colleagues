@@ -97,27 +97,33 @@ const WORLD_UP: Vec3 = { x: 0, y: 1, z: 0 };
 const GROUND_Y = 0; // les nœuds ne descendent pas sous le sol si `groundClamp`
 
 /** Espèce de départ (#08) : feuillu type hêtre, couronne arrondie et pleine. */
+// Forme reprise du banc de générateur (tree-generator.html, set "hybrid" affiné) :
+// tronc trapu, couronne large et arrondie (tropisme bas + jitter haut = évasée et
+// organique plutôt que colonne étroite), branchStartRatio haut → pas de branches
+// basses (fin des « racines », crownCenterHeightRatio 0.72 gardait déjà le bas de
+// l'ellipsoïde hors sol). Densité de branches/feuilles volontairement MODÉRÉE : le
+// plein visuel vient du chevauchement des blobs/cartes de foliage (cloudFoliage.ts,
+// foliageCards.ts), pas du nombre de brindilles — une densité plus haute (testée)
+// fait exploser les 3 budgets triangles (mesh/cloud/cards) sans gain visuel net.
 export const BEECH_SPECIES: TreeSpecies = {
-  trunkHeight: 6,
-  trunkSegments: 8,
-  trunkBaseRadius: 0.26, // + épais (moins grêle)
-  trunkTipRadius: 0.1,
-  trunkLeanMax: 0.28, // tronc plus droit
-  // Couronne remontée et resserrée : le bas de l'ellipsoïde ne descend plus jusqu'au
-  // sol → le tropisme n'attire plus les branches basses vers le bas (effet « racines »).
+  trunkHeight: 3.6,
+  trunkSegments: 6,
+  trunkBaseRadius: 0.47,
+  trunkTipRadius: 0.17,
+  trunkLeanMax: 0.32,
   crownCenterHeightRatio: 0.72,
-  crownRadiusXZ: 3.0,
-  crownRadiusY: 2.1,
-  branchLevels: 3, // 3 niveaux → structure dense, moins grêle
-  branchesPerLevel: [6, 4, 2], // 48 brindilles (× leafAnchorsPerTwig = 384 ancres < 400)
-  branchSegments: 5,
-  branchLengthRatio: 0.66,
-  branchRadiusTaper: 0.62, // branches plus charpentées
-  branchStartRatio: 0.5, // branches à partir de la moitié du tronc (bas dégagé)
-  tropismWeight: 0.62, // aligne les branches sur le radial de couronne (cf. tropismDir : haut = plus étroit, pas « plus rond »)
-  jitterWeight: 0.16,
-  leafAnchorsPerTwig: 8,
-  leafSpread: 0.4,
+  crownRadiusXZ: 3.8,
+  crownRadiusY: 4.6,
+  branchLevels: 3,
+  branchesPerLevel: [3, 4, 2],
+  branchSegments: 4,
+  branchLengthRatio: 0.68,
+  branchRadiusTaper: 0.54,
+  branchStartRatio: 0.94, // quasi aucune branche basse
+  tropismWeight: 0, // pas d'alignement radial → couronne évasée (cf. tropismDir)
+  jitterWeight: 0.6, // forte irrégularité organique
+  leafAnchorsPerTwig: 5,
+  leafSpread: 1.25,
 };
 
 // --- Petite algèbre vectorielle locale (pas de dépendance Three.js ici) ---

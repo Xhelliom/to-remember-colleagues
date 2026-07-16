@@ -14,12 +14,12 @@ const CAM: CamPose = { x: 0, y: 1.8, z: 6.5, yaw: Math.PI, pitch: -0.08 };
 const VIEWPORT = { width: 480, height: 360 };
 const SEED = 1;
 
-// Budget triangles d'un arbre en CARTES (mission 09) : bark (mission 08, inchangé
-// par cette mission, ~2,4k tris à lod=0) + cartes de feuillage (~300-400 tris) —
-// très en-deçà du budget hero "vraies feuilles" (MAX 20 000, cf. treeBuilder.test.ts),
-// et surtout la partie feuillage seule chute de ~2 700 (mesh) à ~350 (cartes),
-// l'ordre de grandeur visé pour l'instanciation en masse (mission 10).
-const CARDS_TREE_TRIANGLE_BUDGET = 4000;
+// Budget triangles d'un arbre en CARTES : bark (~3,5k tris à lod=0, espèce banc
+// générateur) + cartes de feuillage (~400-460 tris, cartes agrandies pour combler
+// les trous — foliageCards.ts) — mesuré ~3,9k sur 8 graines, marge gardée pour la
+// variance de seed. Très en-deçà du budget hero "vraies feuilles" (26 000, cf.
+// treeBuilder.test.ts), l'ordre de grandeur visé pour l'instanciation en masse.
+const CARDS_TREE_TRIANGLE_BUDGET = 5000;
 
 // Coverage de silhouette : fraction de pixels du cadrage qui ne sont PAS le ciel
 // (donc couverts par bark+feuillage). Comparaison hero vs cartes à tolérance —
