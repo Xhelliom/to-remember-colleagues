@@ -20,21 +20,6 @@ import type { Frame } from "./worldLayout.ts";
 const loader = document.getElementById("loader") as HTMLDivElement;
 const canvas = document.getElementById("scene") as HTMLCanvasElement;
 
-// Bypass complet du routing pour l'itération visuelle du biome de cluster — sert
-// aussi de scène de HARNAIS déterministe pour les missions du rework herbe/arbres
-// (plan/README.md § Infra de test partagée) : `?cam=x,y,z,yaw,pitch[,fov]` place la
-// caméra, `?seed=N` fait varier le layout (déterministe), `?T=heures` recolore
-// l'ambiance (défaut = comportement actuel si absent). `?preset=low|high|ultra` est
-// lu tel quel par les futures missions (herbe/arbres/pierre) via URLSearchParams —
-// rien à câbler ici tant qu'aucun chemin alternatif n'existe.
-// Usage : ?testCluster=42  (la valeur est un seed pour de futures variations)
-const testClusterSeed = new URLSearchParams(window.location.search).get("testCluster");
-if (testClusterSeed !== null) {
-  void runClusterTest(canvas);
-} else {
-  void startApp();
-}
-
 const PERF_FRAME_WINDOW = 30; // frames sur lesquelles la fps est moyennée (glissant)
 const READY_FRAME_COUNT = 10; // nb de frames avant de considérer la scène stable (__ready)
 const HARNESS_SUN_DISTANCE = 16; // distance soleil↔cible, calée sur le rig d'origine (3,16,2)
@@ -48,6 +33,24 @@ const HARNESS_SEASON: SeasonKey = "summer"; // fixe → déterminisme indépenda
 const POST_FX_PARAM = "post";
 const SHOT_PARAM = "shot";
 const DEFAULT_GRADE_HOUR = 12; // heure utilisée pour le grade filmique quand `?T=` est absent
+
+// Bypass complet du routing pour l'itération visuelle du biome de cluster — sert
+// aussi de scène de HARNAIS déterministe pour les missions du rework herbe/arbres
+// (plan/README.md § Infra de test partagée) : `?cam=x,y,z,yaw,pitch[,fov]` place la
+// caméra, `?seed=N` fait varier le layout (déterministe), `?T=heures` recolore
+// l'ambiance (défaut = comportement actuel si absent). `?preset=low|high|ultra` est
+// lu tel quel par les futures missions (herbe/arbres/pierre) via URLSearchParams —
+// rien à câbler ici tant qu'aucun chemin alternatif n'existe.
+// Usage : ?testCluster=42  (la valeur est un seed pour de futures variations)
+// NB : ce dispatch doit rester APRÈS toutes les const ci-dessus — `runClusterTest`
+// les lit de façon synchrone dès son premier appel (avant tout `await`), et un
+// appel plus haut dans le fichier lève une ReferenceError (TDZ) sur ces const.
+const testClusterSeed = new URLSearchParams(window.location.search).get("testCluster");
+if (testClusterSeed !== null) {
+  void runClusterTest(canvas);
+} else {
+  void startApp();
+}
 
 type PerfSnapshot = { drawCalls: number; triangles: number; programs: number; fps: number };
 /** Fenêtre enrichie des hooks dev/e2e — jamais présente en prod (voir installHarnessHooks). */

@@ -1,9 +1,12 @@
 import * as THREE from "three";
+import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer.js";
+import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
+import type { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import type { Colleague, Company, CompanyDetail } from "./types.ts";
 import { buildWorld } from "./world.ts";
 import { Presence, type PeerState } from "./net.ts";
 import { makeAvatar, showEmote, tickEmote, type Avatar } from "./avatars.ts";
-import { applyWeather, getAmbiance, resolveSeasonKey, resolveTimeKey, type Ambiance, type SeasonSetting, type TimeSetting, type WeatherKey } from "./ambiance.ts";
+import { applyWeather, getAmbiance, getFilmGrade, resolveSeasonKey, resolveTimeKey, type Ambiance, type SeasonSetting, type TimeSetting, type WeatherKey } from "./ambiance.ts";
 import { createSky, type Sky } from "./scene/sky.ts";
 import { HdriSky } from "./scene/hdriSky.ts";
 import { Lighting } from "./scene/lighting.ts";
@@ -16,12 +19,21 @@ import { selectLodTier } from "./scene/distanceLod.ts";
 import { AmbientAudio } from "./scene/ambientAudio.ts";
 import { ShadowIntegration } from "./scene/shadowIntegration.ts";
 import { pickNearestColleague, FOCUS_RADIUS } from "./scene/graveFocus.ts";
+import { AutoExposurePass } from "./scene/post/autoExposure.ts";
+import { applyFilmGrade, createGoldenGradePass } from "./scene/post/grade.ts";
+import { createFogRenderTarget, GroundFogPass } from "./scene/post/groundFog.ts";
 
 const FOV = 70;
 const NEAR = 0.1;
 const FAR = 400;
 const MAX_PIXEL_RATIO = 2;
 const TONE_MAPPING_EXPOSURE = 1.0;
+// Post (issue #14, chantier 2.1) : auto-exposition + grade filmique par heure +
+// brume de sol — ON par défaut (le joueur doit enfin voir ce travail), repli
+// `?post=0` pour les machines modestes et pour matcher le comportement e2e
+// historique (aucun test e2e du vrai jeu ne fait d'assertion pixel à ce jour,
+// mais on garde une échappatoire sûre).
+const POST_FX_PARAM = "post";
 const MAX_DELTA = 0.05;
 const GRASS_LOD_RADIUS = 30;  // en dessous : rendu complet
 const GRASS_LOD_MED = 50;     // en dessous : rendu réduit ; au-delà : zéro
@@ -90,6 +102,10 @@ export class Cemetery {
   private focusCb: (c: Colleague | null) => void = () => {};
   private focused: Colleague | null = null;
 
+  // Post-traitement (issue #14) : null quand `?post=0` → rendu direct inchangé.
+  private readonly composer: EffectComposer | null;
+  private readonly gradePass: ShaderPass | null;
+
   // Présence multijoueur (#4).
   private readonly presence = new Presence();
   private readonly peers = new Map<string, Peer>();
@@ -116,6 +132,19 @@ export class Cemetery {
 
     this.camera = new THREE.PerspectiveCamera(FOV, window.innerWidth / window.innerHeight, NEAR, FAR);
     this.shadowIntegration = new ShadowIntegration(this.camera, this.scene, this.renderer, this.lighting.key);
+
+    const postFxEnabled = new URLSearchParams(window.location.search).get(POST_FX_PARAM) !== "0";
+    if (postFxEnabled) {
+      this.composer = new EffectComposer(this.renderer, createFogRenderTarget(this.renderer));
+      this.composer.addPass(new RenderPass(this.scene, this.camera));
+      this.composer.addPass(new AutoExposurePass());
+      this.gradePass = createGoldenGradePass();
+      this.composer.addPass(this.gradePass);
+      this.composer.addPass(new GroundFogPass(this.camera));
+    } else {
+      this.composer = null;
+      this.gradePass = null;
+    }
 
     this.sky = createSky();
     this.hdriSky = new HdriSky(this.renderer);
@@ -290,6 +319,7 @@ export class Cemetery {
     this.lighting.apply(effective);
     this.shadowIntegration.applyAmbiance(effective.keyLightColor, effective.keyLightIntensity, this.lighting.sunDirection);
     this.groundMat.color.setHex(effective.groundColor);
+    if (this.gradePass) applyFilmGrade(this.gradePass, getFilmGrade(effective.timeKey));
     // La forêt/les arches sont portées par world.ts ; ici, seulement les particules.
     this.decor.build(effective, PARTICLE_HALF, { structures: false });
     void this.applyHdriSky(effective);
@@ -457,13 +487,15 @@ export class Cemetery {
         for (const m of veg.meshes) m.count = visible ? (m.userData.maxCount as number) : 0;
       }
     }
-    this.renderer.render(this.scene, this.camera);
+    if (this.composer) this.composer.render();
+    else this.renderer.render(this.scene, this.camera);
   };
 
   private onResize = () => {
     this.camera.aspect = window.innerWidth / window.innerHeight;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.composer?.setSize(window.innerWidth, window.innerHeight);
   };
 
   private onActionKey = (e: KeyboardEvent) => {

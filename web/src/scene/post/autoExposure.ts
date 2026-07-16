@@ -17,6 +17,10 @@ import { FullScreenQuad, Pass } from "three/examples/jsm/postprocessing/Pass.js"
 
 const METER_TARGET_SIZE = 1; // downsample cible : 1×1 (moyenne de toute l'image)
 const METER_SAMPLE_TAPS = 8; // grille TAPS×TAPS de prises stratifiées sur l'image entière
+// Metering pondéré sol/centre (classique photo/jeu) : le ciel occupe une large
+// part du cadre et est nettement plus lumineux que le sol — sans ça, un ciel de
+// jour tire l'exposition vers le bas et écrase le sol/les arbres en noir.
+const METER_GROUND_V_MAX = 0.6; // ne prend en compte que le tiers-bas..0,6 de l'image (v=1 = haut d'écran)
 const DEFAULT_TARGET_LUMINANCE = 0.45; // luminance moyenne visée après exposition (0..1)
 const DEFAULT_MIN_EXPOSURE = 0.4;
 const DEFAULT_MAX_EXPOSURE = 2.2;
@@ -75,8 +79,9 @@ const METER_FRAGMENT_SHADER = `
     vec3 sum = vec3(0.0);
     for (int i = 0; i < ${METER_SAMPLE_TAPS}; i++) {
       for (int j = 0; j < ${METER_SAMPLE_TAPS}; j++) {
-        vec2 uv = (vec2(float(i), float(j)) + 0.5) / float(${METER_SAMPLE_TAPS});
-        sum += texture2D(tDiffuse, uv).rgb;
+        float u = (float(i) + 0.5) / float(${METER_SAMPLE_TAPS});
+        float v = (float(j) + 0.5) / float(${METER_SAMPLE_TAPS}) * ${METER_GROUND_V_MAX};
+        sum += texture2D(tDiffuse, vec2(u, v)).rgb;
       }
     }
     vec3 avg = sum / float(${METER_SAMPLE_TAPS * METER_SAMPLE_TAPS});
