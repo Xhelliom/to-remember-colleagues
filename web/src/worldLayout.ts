@@ -37,6 +37,37 @@ export type WorldLayout = {
   start: Vec2;
 };
 
+/** Point Catmull-Rom uniforme entre `p1` et `p2` à `t` ∈ [0,1] (`p0`/`p3` = points
+ *  de contrôle voisins). Formule standard, tangentes dérivées des points adjacents. */
+function catmullRomPoint(p0: Vec2, p1: Vec2, p2: Vec2, p3: Vec2, t: number): Vec2 {
+  const t2 = t * t;
+  const t3 = t2 * t;
+  const c = (a: number, b: number, cc: number, d: number): number =>
+    0.5 * (2 * b + (-a + cc) * t + (2 * a - 5 * b + 4 * cc - d) * t2 + (-a + 3 * b - 3 * cc + d) * t3);
+  return { x: c(p0.x, p1.x, p2.x, p3.x), z: c(p0.z, p1.z, p2.z, p3.z) };
+}
+
+/**
+ * Lisse une polyligne par Catmull-Rom uniforme (2.2) — remplace l'échantillonnage
+ * linéaire mécanique de la route par une courbe continue, `samplesPerSeg` points
+ * par segment d'origine. Pur, testable : mêmes points de contrôle → même courbe.
+ * Les extrémités dupliquent le point voisin comme tangente (courbe ouverte, pas de
+ * boucle) — comportement standard Catmull-Rom "clamped".
+ */
+export function smoothCenterline(points: readonly Vec2[], samplesPerSeg: number): Vec2[] {
+  if (points.length < 2) return [...points];
+  const out: Vec2[] = [];
+  for (let i = 0; i < points.length - 1; i++) {
+    const p0 = points[Math.max(0, i - 1)];
+    const p1 = points[i];
+    const p2 = points[i + 1];
+    const p3 = points[Math.min(points.length - 1, i + 2)];
+    for (let s = 0; s < samplesPerSeg; s++) out.push(catmullRomPoint(p0, p1, p2, p3, s / samplesPerSeg));
+  }
+  out.push(points[points.length - 1]);
+  return out;
+}
+
 /** Projette un point MONDE dans un repère local (origine = `frame.entrance`). */
 export function toLocal(frame: Frame, p: Vec2): Vec2 {
   const dx = p.x - frame.entrance.x;

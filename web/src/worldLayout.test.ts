@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { distanceToSlot, slotCorners, worldLayout } from "./worldLayout.ts";
+import { distanceToSlot, slotCorners, smoothCenterline, worldLayout, type Vec2 } from "./worldLayout.ts";
 
 const companies = (n: number) =>
   Array.from({ length: n }, (_, i) => ({ id: `org-${i}`, graveCount: 10 + i }));
@@ -94,5 +94,45 @@ describe("worldLayout (monde continu, évolution #5)", () => {
         expect(corner.z).toBeLessThanOrEqual(bounds.maxZ);
       }
     }
+  });
+});
+
+describe("smoothCenterline — lissage Catmull-Rom de la route (2.2)", () => {
+  const zigzag: Vec2[] = [{ x: 0, z: 0 }, { x: 10, z: -10 }, { x: -10, z: -20 }, { x: 10, z: -30 }, { x: 0, z: -40 }];
+
+  it("est déterministe : mêmes points de contrôle → même courbe", () => {
+    expect(smoothCenterline(zigzag, 8)).toEqual(smoothCenterline(zigzag, 8));
+  });
+
+  it("passe exactement par chaque point de contrôle d'origine", () => {
+    const out = smoothCenterline(zigzag, 8);
+    for (const p of zigzag) {
+      expect(out.some((o) => Math.abs(o.x - p.x) < 1e-9 && Math.abs(o.z - p.z) < 1e-9)).toBe(true);
+    }
+  });
+
+  it("produit (n-1)*samplesPerSeg + 1 points pour n points de contrôle", () => {
+    expect(smoothCenterline(zigzag, 8)).toHaveLength((zigzag.length - 1) * 8 + 1);
+  });
+
+  it("lisse le tracé : la courbe s'écarte de la polyligne (pas un simple rejeu des segments droits)", () => {
+    const out = smoothCenterline(zigzag, 8);
+    // Un point à mi-chemin d'un segment en zigzag doit s'écarter du milieu linéaire
+    // (la courbe coupe au large des virages plutôt que de les suivre au cordeau).
+    const mid = out[4]; // s=4/8 du premier segment [0,0]→[10,-10]
+    const linearMid = { x: 5, z: -5 };
+    expect(Math.hypot(mid.x - linearMid.x, mid.z - linearMid.z)).toBeGreaterThan(0.5);
+  });
+
+  it("gère une polyligne à 2 points (segment unique)", () => {
+    const out = smoothCenterline([{ x: 0, z: 0 }, { x: 10, z: 0 }], 4);
+    expect(out).toHaveLength(5);
+    expect(out[0]).toEqual({ x: 0, z: 0 });
+    expect(out[4]).toEqual({ x: 10, z: 0 });
+  });
+
+  it("renvoie les points tels quels si moins de 2 points", () => {
+    expect(smoothCenterline([{ x: 1, z: 2 }], 8)).toEqual([{ x: 1, z: 2 }]);
+    expect(smoothCenterline([], 8)).toEqual([]);
   });
 });

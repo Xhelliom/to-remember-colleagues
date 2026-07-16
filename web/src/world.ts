@@ -5,18 +5,25 @@
 import * as THREE from "three";
 import type { Company } from "./types.ts";
 import type { Ambiance } from "./ambiance.ts";
-import { worldLayout, distanceToSlot, ROAD_HALF, type Vec2, type WorldSlot } from "./worldLayout.ts";
+import { worldLayout, distanceToSlot, smoothCenterline, ROAD_HALF, type Vec2, type WorldSlot } from "./worldLayout.ts";
 import { buildEntranceArch } from "./hub.ts";
-import { makeTree } from "./scene/decor.ts";
+import { buildRoad } from "./scene/road.ts";
+import { buildRoadLanterns } from "./scene/roadLanterns.ts";
+import { worldGroundHeightAt } from "./scene/worldGround.ts";
+import { hashSeed } from "./procedural.ts";
+import { TreeLodField, type TreePlacement } from "./scene/trees/treeLod.ts";
 import { seededRandom } from "./graves.ts";
 
-const ROAD_Y = 0.02; // léger décollement du sol pour éviter le z-fighting
-const ROAD_SAMPLES_PER_SEG = 6; // finesse du ruban entre deux stations
-const ROAD_COLOR = 0x55504a;
+const ROAD_CURVE_SAMPLES_PER_SEG = 8; // finesse du lissage Catmull-Rom entre deux stations
 const FOREST_SEED = 0xf0e571; // graine fixe → forêt déterministe
 const TREES_PER_CEMETERY = 14; // densité bornée (∝ contenu, pas à l'aire du monde)
 const FOREST_CLEARANCE = 2.5; // distance minimale aux bords de route et de parcelle
-const TRUNK_COLOR = 0x3a2a1e;
+// Unifiée sur la chaîne LOD procédurale (2.3, plan REVUE_AMELIORATIONS_RENDU_PARCOURS.md) :
+// à cette distance de la route, la quasi-totalité de ces arbres sont en impostor
+// (2 triangles) — coût marginal pour un gain de cohérence de style avec les
+// arbres procéduraux des cimetières (fini la rupture tronc-cylindre/icosaèdre).
+const FOREST_TREE_SCALE_MIN = 0.8;
+const FOREST_TREE_SCALE_RANGE = 0.6;
 
 export type WorldSlotWithCompany = WorldSlot & { company: Company };
 export type World = {
@@ -24,56 +31,15 @@ export type World = {
   slots: WorldSlotWithCompany[];
   bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
   start: Vec2;
+  /** Polyligne LISSÉE de l'axe (worldLayout.ts:smoothCenterline) — réutilisée
+   *  par cemetery.ts pour le relief du sol extérieur (worldGround.ts). */
+  roadPoints: Vec2[];
+  /** Chaîne LOD de la forêt de transition — l'appelant doit appeler `.update()`
+   *  chaque frame (comme `chunk.veg.treeLod`, cf. worldStreamer.ts) et `.dispose()`
+   *  explicitement à la fermeture du monde (pas via un simple disposeObject
+   *  générique, cf. treeLod.ts:dispose — gère aussi les pools de cartes). */
+  forestTreeLod: TreeLodField | null;
 };
-
-/** Échantillonne la polyligne de l'axe (interpolation linéaire entre stations). */
-function sampleCenterline(centerline: Vec2[]): Vec2[] {
-  const pts: Vec2[] = [];
-  for (let i = 0; i < centerline.length - 1; i++) {
-    const a = centerline[i];
-    const b = centerline[i + 1];
-    for (let s = 0; s < ROAD_SAMPLES_PER_SEG; s++) {
-      const t = s / ROAD_SAMPLES_PER_SEG;
-      pts.push({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t });
-    }
-  }
-  pts.push(centerline[centerline.length - 1]);
-  return pts;
-}
-
-/** Ruban de route : deux bords décalés ±ROAD_HALF le long de l'axe échantillonné. */
-function buildRoad(centerline: Vec2[]): THREE.Mesh {
-  const pts = sampleCenterline(centerline);
-  const m = pts.length;
-  const positions = new Float32Array(m * 2 * 3);
-  for (let i = 0; i < m; i++) {
-    const a = pts[Math.max(0, i - 1)];
-    const b = pts[Math.min(m - 1, i + 1)];
-    const tx = b.x - a.x;
-    const tz = b.z - a.z;
-    const tl = Math.hypot(tx, tz) || 1;
-    const nx = tz / tl;
-    const nz = -tx / tl;
-    const p = pts[i];
-    positions.set([p.x - nx * ROAD_HALF, ROAD_Y, p.z - nz * ROAD_HALF], i * 6);
-    positions.set([p.x + nx * ROAD_HALF, ROAD_Y, p.z + nz * ROAD_HALF], i * 6 + 3);
-  }
-  const idx: number[] = [];
-  for (let i = 0; i < m - 1; i++) {
-    const a = i * 2;
-    const b = i * 2 + 1;
-    const c = (i + 1) * 2;
-    const d = (i + 1) * 2 + 1;
-    idx.push(a, c, b, b, c, d);
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(positions, 3));
-  geo.setIndex(idx);
-  geo.computeVertexNormals();
-  const road = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: ROAD_COLOR, roughness: 1 }));
-  road.receiveShadow = true;
-  return road;
-}
 
 /** Distance d'un point au segment [a,b] dans le plan XZ. */
 function distToSegment(x: number, z: number, a: Vec2, b: Vec2): number {
@@ -85,9 +51,12 @@ function distToSegment(x: number, z: number, a: Vec2, b: Vec2): number {
   return Math.hypot(x - (a.x + dx * t), z - (a.z + dz * t));
 }
 
-function nearRoad(x: number, z: number, centerline: Vec2[]): boolean {
-  for (let i = 0; i < centerline.length - 1; i++) {
-    if (distToSegment(x, z, centerline[i], centerline[i + 1]) < ROAD_HALF + FOREST_CLEARANCE) return true;
+/** `roadPoints` doit être la polyligne LISSÉE (smoothCenterline) — sinon un arbre
+ *  peut se retrouver trop près de la route réelle dans un virage (la corde
+ *  d'origine coupe au plus court, la courbe s'en écarte). */
+function nearRoad(x: number, z: number, roadPoints: readonly Vec2[]): boolean {
+  for (let i = 0; i < roadPoints.length - 1; i++) {
+    if (distToSegment(x, z, roadPoints[i], roadPoints[i + 1]) < ROAD_HALF + FOREST_CLEARANCE) return true;
   }
   return false;
 }
@@ -98,41 +67,44 @@ function insidePlot(x: number, z: number, slots: WorldSlot[]): boolean {
   return slots.some((s) => distanceToSlot(s, { x, z }) < FOREST_CLEARANCE);
 }
 
-/** Forêt comblant les intervalles entre route et parcelles (déterministe, bornée). */
-function buildForest(
-  centerline: Vec2[],
-  slots: WorldSlot[],
-  bounds: World["bounds"],
-  a: Ambiance,
-): THREE.Group {
-  const g = new THREE.Group();
+/** Emplacements de la forêt de transition comblant les intervalles entre route
+ *  et parcelles (déterministe, bornée) — même chaîne LOD procédurale que les
+ *  arbres des cimetières (2.3). `roadPoints` : polyligne LISSÉE, cf. `nearRoad`.
+ *  La hauteur repose sur `worldGroundHeightAt`, la MÊME source que le sol
+ *  extérieur (worldGround.ts) : pas de flottement. */
+function buildForestPlacements(roadPoints: readonly Vec2[], slots: WorldSlot[], bounds: World["bounds"]): TreePlacement[] {
   const rand = seededRandom(FOREST_SEED);
-  const bare = a.scary || a.seasonKey === "winter";
-  const trunkMat = new THREE.MeshStandardMaterial({ color: TRUNK_COLOR, roughness: 1 });
-  const foliageMat = new THREE.MeshStandardMaterial({ color: a.foliageColor, roughness: 1 });
   const target = Math.max(slots.length, 1) * TREES_PER_CEMETERY;
-  let placed = 0;
-  for (let tries = 0; placed < target && tries < target * 8; tries++) {
+  const placements: TreePlacement[] = [];
+  for (let tries = 0; placements.length < target && tries < target * 8; tries++) {
     const x = bounds.minX + rand() * (bounds.maxX - bounds.minX);
     const z = bounds.minZ + rand() * (bounds.maxZ - bounds.minZ);
-    if (nearRoad(x, z, centerline) || insidePlot(x, z, slots)) continue;
-    const tree = makeTree(trunkMat, foliageMat, bare, rand);
-    tree.position.set(x, 0, z);
-    tree.rotation.y = rand() * Math.PI * 2;
-    g.add(tree);
-    placed++;
+    if (nearRoad(x, z, roadPoints) || insidePlot(x, z, slots)) continue;
+    placements.push({
+      x, z, y: worldGroundHeightAt(x, z, roadPoints, slots),
+      yaw: rand() * Math.PI * 2,
+      scale: FOREST_TREE_SCALE_MIN + rand() * FOREST_TREE_SCALE_RANGE,
+      seed: hashSeed(`world:forest:${placements.length}`),
+    });
   }
-  return g;
+  return placements;
 }
 
-/** Assemble le monde complet (route + arches + forêt) prêt à être ajouté à la scène. */
-export function buildWorld(companies: Company[], ambiance: Ambiance): World {
+/** Assemble le monde complet (route + arches + forêt) prêt à être ajouté à la scène.
+ *  `renderer` : requis par la chaîne LOD procédurale de la forêt (capture des
+ *  cartes/impostors au premier appel, ensuite mise en cache — cf. treeLod.ts). */
+export function buildWorld(companies: Company[], ambiance: Ambiance, renderer: THREE.WebGLRenderer): World {
   const layout = worldLayout(companies.map((c) => ({ id: c.id, graveCount: c.graveCount })));
   const byId = new Map(companies.map((c) => [c.id, c]));
   const group = new THREE.Group();
 
-  group.add(buildRoad(layout.centerline));
-  group.add(buildForest(layout.centerline, layout.slots, layout.bounds, ambiance));
+  const roadPoints = smoothCenterline(layout.centerline, ROAD_CURVE_SAMPLES_PER_SEG);
+  group.add(buildRoad(roadPoints, layout.slots, ambiance.grassColor));
+  group.add(buildRoadLanterns(roadPoints));
+
+  const forestPlacements = buildForestPlacements(roadPoints, layout.slots, layout.bounds);
+  const forestTreeLod = forestPlacements.length > 0 ? TreeLodField.create(FOREST_SEED, forestPlacements, renderer) : null;
+  if (forestTreeLod) group.add(forestTreeLod.group);
 
   const slots: WorldSlotWithCompany[] = [];
   for (const slot of layout.slots) {
@@ -148,5 +120,5 @@ export function buildWorld(companies: Company[], ambiance: Ambiance): World {
     slots.push({ ...slot, company });
   }
 
-  return { group, slots, bounds: layout.bounds, start: layout.start };
+  return { group, slots, bounds: layout.bounds, start: layout.start, roadPoints, forestTreeLod };
 }

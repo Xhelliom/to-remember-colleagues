@@ -33,7 +33,7 @@ export function loadGltf(path: string): Promise<THREE.Group> {
 const texLoader = new THREE.TextureLoader();
 const texCache = new Map<string, THREE.Texture>();
 
-function loadTex(path: string): THREE.Texture {
+export function loadTex(path: string): THREE.Texture {
   let t = texCache.get(path);
   if (!t) {
     t = texLoader.load(path);
@@ -44,7 +44,7 @@ function loadTex(path: string): THREE.Texture {
 }
 
 /** Texture couleur (diffuse) : décodage sRGB, sinon les JPG Poly Haven rendent délavés. */
-function loadDiffuseTex(path: string): THREE.Texture {
+export function loadDiffuseTex(path: string): THREE.Texture {
   const t = loadTex(path);
   t.colorSpace = THREE.SRGBColorSpace;
   return t;

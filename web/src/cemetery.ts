@@ -19,6 +19,10 @@ import { selectLodTier } from "./scene/distanceLod.ts";
 import { AmbientAudio } from "./scene/ambientAudio.ts";
 import { ShadowIntegration } from "./scene/shadowIntegration.ts";
 import { pickNearestColleague, FOCUS_RADIUS } from "./scene/graveFocus.ts";
+import type { TreeLodField } from "./scene/trees/treeLod.ts";
+import { buildWorldGroundGeometry } from "./scene/worldGround.ts";
+import { loadDiffuseTex, loadTex } from "./scene/grass.ts";
+import type { Vec2, WorldSlot } from "./worldLayout.ts";
 import { AutoExposurePass } from "./scene/post/autoExposure.ts";
 import { applyFilmGrade, createGoldenGradePass } from "./scene/post/grade.ts";
 import { createFogRenderTarget, GroundFogPass } from "./scene/post/groundFog.ts";
@@ -49,6 +53,7 @@ const GRASS_LOD_MED = 50;     // en dessous : rendu réduit ; au-delà : zéro
 const GRASS_LOD_MED_CAP = 400; // plafond d'instances pour le palier réduit
 const LOD_HYSTERESIS = 2; // marge anti-clignotement à la frontière d'un palier (scene/distanceLod.ts)
 const GROUND_PAD = 60; // débord du sol autour des bornes du monde
+const GROUND_TEXTURE_TILE_M = 6; // m par répétition de la texture forest_ground du sol extérieur
 const PARTICLE_HALF = 60; // demi-étendue des particules d'ambiance autour du spawn
 const PEER_SMOOTH_RATE = 10; // lissage exponentiel de l'interpolation des pairs
 // Distribution pondérée de la météo : beau temps 3× plus fréquent.
@@ -78,6 +83,10 @@ export class Cemetery {
   private readonly shadowIntegration: ShadowIntegration;
   private readonly groundMat = new THREE.MeshStandardMaterial({ roughness: 1 });
   private readonly ground: THREE.Mesh;
+  /** Chaîne LOD de la forêt de transition (2.3) — recréée à chaque `enterWorld`,
+   *  mise à jour par frame dans `loop`, disposée explicitement dans `clearWorld`
+   *  (pas via disposeObject générique, cf. World["forestTreeLod"]). */
+  private forestTreeLod: TreeLodField | null = null;
   private readonly gravesGroup = new THREE.Group();
   private readonly grassGroup = new THREE.Group();
   private readonly groundPlanesGroup = new THREE.Group();
@@ -163,6 +172,14 @@ export class Cemetery {
     this.scene.fog = new THREE.FogExp2(0xc7d6e6, 0.01);
     this.lighting.addTo(this.scene);
     this.scene.add(this.gravesGroup, this.grassGroup, this.groundPlanesGroup, this.decor.group, this.worldGroup, this.peersGroup, this.vegetationGroup);
+
+    // Sol extérieur (2.3) : forest_ground tuilée, teinte d'ambiance en multiplicateur
+    // (MeshStandardMaterial.color × map, natif — pas de shader dédié). Le `repeat`
+    // est recalé à chaque `resizeGround` selon la taille réelle du monde.
+    const groundTex = "/textures/ground/forest_ground_04_2k/textures/forest_ground_04";
+    this.groundMat.map = loadDiffuseTex(`${groundTex}_diff_2k.jpg`).clone();
+    this.groundMat.normalMap = loadTex(`${groundTex}_nor_gl_2k.jpg`).clone();
+    for (const t of [this.groundMat.map, this.groundMat.normalMap]) t.wrapS = t.wrapT = THREE.RepeatWrapping;
 
     this.ground = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), this.groundMat);
     this.ground.rotation.x = -Math.PI / 2;
@@ -251,10 +268,11 @@ export class Cemetery {
    */
   enterWorld(companies: Company[], spawnCompanyId?: string) {
     this.clearWorld();
-    const world = buildWorld(companies, this.ambiance);
+    const world = buildWorld(companies, this.ambiance, this.renderer);
     this.streamer.enter(world.slots);
     this.worldGroup.add(world.group);
-    this.resizeGround(world.bounds);
+    this.forestTreeLod = world.forestTreeLod;
+    this.resizeGround(world.bounds, world.roadPoints, world.slots);
     this.controls.setBoundsRect(world.bounds);
 
     const spawn = spawnCompanyId ? world.slots.find((s) => s.id === spawnCompanyId)?.entrance : undefined;
@@ -308,10 +326,14 @@ export class Cemetery {
     this.presence.emote(name);
   }
 
-  private resizeGround(b: { minX: number; maxX: number; minZ: number; maxZ: number }) {
+  private resizeGround(b: { minX: number; maxX: number; minZ: number; maxZ: number }, roadPoints: Vec2[], slots: WorldSlot[]) {
+    const padded = { minX: b.minX - GROUND_PAD, maxX: b.maxX + GROUND_PAD, minZ: b.minZ - GROUND_PAD, maxZ: b.maxZ + GROUND_PAD };
     this.ground.geometry.dispose();
-    this.ground.geometry = new THREE.PlaneGeometry(b.maxX - b.minX + GROUND_PAD * 2, b.maxZ - b.minZ + GROUND_PAD * 2);
+    this.ground.geometry = buildWorldGroundGeometry(padded, roadPoints, slots);
     this.ground.position.set((b.minX + b.maxX) / 2, 0, (b.minZ + b.maxZ) / 2);
+    const repeat = Math.max(1, Math.round((padded.maxX - padded.minX) / GROUND_TEXTURE_TILE_M));
+    (this.groundMat.map as THREE.Texture).repeat.set(repeat, repeat);
+    (this.groundMat.normalMap as THREE.Texture).repeat.set(repeat, repeat);
   }
 
   private resolveAmbiance(): Ambiance {
@@ -348,6 +370,12 @@ export class Cemetery {
   }
 
   clearWorld() {
+    // AVANT le disposeObject générique du worldGroup : treeLod.dispose() gère
+    // les pools de cartes/l'atlas partagé correctement (cf. VegetationInstances,
+    // même précaution) — un simple disposeObject les traiterait comme n'importe
+    // quel mesh et pourrait mal interagir avec le cache partagé (impostors.ts).
+    this.forestTreeLod?.dispose();
+    this.forestTreeLod = null;
     disposeObject(this.worldGroup);
     this.worldGroup.clear();
     disposeObject(this.gravesGroup);
@@ -467,6 +495,7 @@ export class Cemetery {
       this.controls.update(dt);
       this.updateFocus();
       this.streamer.update({ x: this.camera.position.x, z: this.camera.position.z }, this.camera.position.y);
+      this.forestTreeLod?.update(this.camera.position.x, this.camera.position.z, this.camera.position.y);
       this.publishPresence();
     }
     this.updatePeers(dt);
