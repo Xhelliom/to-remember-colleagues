@@ -10,7 +10,7 @@ import { applyWeather, getAmbiance, getFilmGrade, resolveSeasonKey, resolveTimeK
 import { createSky, type Sky } from "./scene/sky.ts";
 import { HdriSky } from "./scene/hdriSky.ts";
 import { Lighting } from "./scene/lighting.ts";
-import { Decor } from "./scene/decor.ts";
+import { WeatherParticles } from "./scene/weatherParticles.ts";
 import { CHUNK_UNLOAD_RADIUS } from "./chunkStreaming.ts";
 import { WorldStreamer } from "./scene/worldStreamer.ts";
 import { disposeObject } from "./scene/disposeObject.ts";
@@ -80,7 +80,7 @@ export class Cemetery {
   private readonly sky: Sky;
   private readonly hdriSky: HdriSky;
   private readonly lighting = new Lighting();
-  private readonly decor = new Decor();
+  private readonly weatherParticles = new WeatherParticles();
   private readonly controls: FirstPersonControls;
   private readonly shadowIntegration: ShadowIntegration;
   private readonly groundMat = new THREE.MeshStandardMaterial({ roughness: 1 });
@@ -174,7 +174,7 @@ export class Cemetery {
     this.scene.add(this.sky.mesh);
     this.scene.fog = new THREE.FogExp2(0xc7d6e6, 0.01);
     this.lighting.addTo(this.scene);
-    this.scene.add(this.gravesGroup, this.grassGroup, this.groundPlanesGroup, this.decor.group, this.worldGroup, this.peersGroup, this.vegetationGroup);
+    this.scene.add(this.gravesGroup, this.grassGroup, this.groundPlanesGroup, this.weatherParticles.group, this.worldGroup, this.peersGroup, this.vegetationGroup);
 
     // Sol extérieur (2.3) : forest_ground tuilée, teinte d'ambiance en multiplicateur
     // (MeshStandardMaterial.color × map, natif — pas de shader dédié). Le `repeat`
@@ -285,7 +285,7 @@ export class Cemetery {
     const start = spawn ?? world.start;
     this.controls.placeAt(start.x, start.z);
 
-    this.decor.build(this.ambiance, PARTICLE_HALF, { structures: false });
+    this.weatherParticles.build(this.ambiance, PARTICLE_HALF);
     this.connectRoom(WORLD_ROOM);
     this.streamer.update({ x: start.x, z: start.z }); // charge ce qui est déjà à portée du spawn
   }
@@ -360,7 +360,7 @@ export class Cemetery {
     this.groundMat.color.setHex(effective.groundColor);
     if (this.gradePass) applyFilmGrade(this.gradePass, getFilmGrade(effective.timeKey));
     // La forêt/les arches sont portées par world.ts ; ici, seulement les particules.
-    this.decor.build(effective, PARTICLE_HALF, { structures: false });
+    this.weatherParticles.build(effective, PARTICLE_HALF);
     void this.applyHdriSky(effective);
     // La direction de la lumière clé change avec l'heure/saison → la shadow
     // map doit être recalculée (autoUpdate = false, voir constructeur).
@@ -505,7 +505,7 @@ export class Cemetery {
       this.publishPresence();
     }
     this.updatePeers(dt);
-    this.decor.update(dt, this.clock.elapsedTime);
+    this.weatherParticles.update(dt, this.clock.elapsedTime);
     this.maybeRefreshAmbiance();
     const t = this.clock.elapsedTime;
     const cam = this.camera.position;

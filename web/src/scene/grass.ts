@@ -1,8 +1,6 @@
 // Sol multi-texture des cimetières : splat map RGBA + 3 textures PBR Poly Haven.
 // L'herbe en touffes est gérée par grassField.ts (InstancedMesh GPU).
 import * as THREE from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
-import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import type { SeasonKey } from "../ambiance.ts";
 import { distanceToPath, hashSeed, type PathSegment } from "../procedural.ts";
 
@@ -12,22 +10,6 @@ const SPLAT_RES = 64;
 const TEX_ANISOTROPY = 8; // netteté en vue rasante (permanente en 1ère personne)
 export const PATH_HALF_WIDTH = 1.1; // m — sous GRAVE_SPACING (2.4), ne mange pas les tombes
 const PATH_FADE = 0.6; // m — largeur du dégradé terre → herbe en bord de chemin
-
-// Cache GLTF partagé avec grassField.ts (touffes d'herbe). Les modèles décimés
-// (tools/optimize-models.sh, web/public/models/opt/) sont compressés meshopt.
-const gltfLoader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-const gltfCache = new Map<string, Promise<THREE.Group>>();
-
-export function loadGltf(path: string): Promise<THREE.Group> {
-  let p = gltfCache.get(path);
-  if (!p) {
-    p = new Promise<THREE.Group>((resolve, reject) =>
-      gltfLoader.load(path, (gltf) => resolve(gltf.scene), undefined, reject),
-    );
-    gltfCache.set(path, p);
-  }
-  return p;
-}
 
 // TextureLoader avec cache simple pour les JPG de sol.
 const texLoader = new THREE.TextureLoader();

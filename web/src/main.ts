@@ -220,7 +220,7 @@ async function runClusterTest(c: HTMLCanvasElement) {
   // ?seed= fait varier le layout de façon déterministe (défaut inchangé si absent).
   const seedParam = harnessParams.get("seed");
   const companyId = seedParam !== null ? `harness-${seedParam}` : "test-company";
-  const biome = await buildClusterBiome(cluster, frame, undefined, companyId);
+  const biome = buildClusterBiome(cluster, frame, undefined, companyId);
   scene.add(biome);
 
   // Tombes stand-in aux ancres possédées par le biome (arc face au visiteur).

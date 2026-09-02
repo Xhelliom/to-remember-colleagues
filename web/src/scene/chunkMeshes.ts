@@ -48,8 +48,9 @@ export async function buildChunkMeshes(
   // reste invariant d'un chunk à l'autre (pas de couture aux jointures).
   const terrain = new TerrainChunk(companyId, frame, chunkWidth, layout.plotWidth, layout.plotDepth, range.start, range.end, mat);
 
-  const [grass, veg, biomes] = await Promise.all([
-    shouldHaveGrass(karma, ambiance.seasonKey)
+  const veg = VegetationInstances.create(companyId, frame, chunkWidth, layout.plotDepth, range.start, range.end, terrain, renderer);
+  const biomes = ClusterBiomes.create(companyId, frame, terrain, clustersInChunk);
+  const grass = await (shouldHaveGrass(karma, ambiance.seasonKey)
       ? GrassField.create(companyId, karma, frame, chunkWidth, layout.plotDepth, range.start, range.end, terrain, {
           // Pas d'herbe sur le chemin peint dans la splat (sol nu cohérent avec la texture).
           exclude: (wx, wz) => {
@@ -57,10 +58,7 @@ export async function buildChunkMeshes(
             return distanceToPath(layout.pathSegments, local.x, local.z) < PATH_HALF_WIDTH;
           },
         })
-      : Promise.resolve(null),
-    VegetationInstances.create(companyId, frame, chunkWidth, layout.plotDepth, range.start, range.end, terrain, renderer),
-    ClusterBiomes.create(companyId, frame, terrain, clustersInChunk),
-  ]);
+    : Promise.resolve(null));
 
   const fence = buildChunkFence(
     frame, range.start, range.end, reach,
