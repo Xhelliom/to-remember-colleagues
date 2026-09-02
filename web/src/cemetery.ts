@@ -22,8 +22,9 @@ import { pickNearestColleague, FOCUS_RADIUS } from "./scene/graveFocus.ts";
 import type { TreeLodField } from "./scene/trees/treeLod.ts";
 import { buildWorldGroundGeometry } from "./scene/worldGround.ts";
 import { loadDiffuseTex, loadTex } from "./scene/grass.ts";
-import type { Vec2, WorldSlot } from "./worldLayout.ts";
+import { toWorld, type Vec2, type WorldSlot } from "./worldLayout.ts";
 import { AutoExposurePass } from "./scene/post/autoExposure.ts";
+import { NanGuardPass } from "./scene/post/nanGuard.ts";
 import { applyFilmGrade, createGoldenGradePass } from "./scene/post/grade.ts";
 import { createFogRenderTarget, GroundFogPass } from "./scene/post/groundFog.ts";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
@@ -42,10 +43,10 @@ const POST_FX_PARAM = "post";
 // Bloom sélectif (chantier 2.5) : ne fait s'embraser que les émissifs forts déjà en
 // place (halo doré des tombes bénies, lueur violacée des hantées, flammes de bougies,
 // citrouilles d'Halloween — graves.ts) — le reste de la scène ne dépasse pas le seuil.
-// Seuil/force à retoucher visuellement si besoin (pas de rendu réel pour valider ici).
-const BLOOM_STRENGTH = 0.7;
-const BLOOM_RADIUS = 0.4;
-const BLOOM_THRESHOLD = 0.82;
+// Réduit après retour visuel (trop puissant à 0.7/seuil 0.82) — encore à affiner.
+const BLOOM_STRENGTH = 0.25;
+const BLOOM_RADIUS = 0.3;
+const BLOOM_THRESHOLD = 0.92;
 const BLOOM_RESOLUTION_SCALE = 0.5; // demi-résolution : coût quasi invisible (option budget du plan)
 const MAX_DELTA = 0.05;
 const GRASS_LOD_RADIUS = 30;  // en dessous : rendu complet
@@ -55,6 +56,7 @@ const LOD_HYSTERESIS = 2; // marge anti-clignotement à la frontière d'un palie
 const GROUND_PAD = 60; // débord du sol autour des bornes du monde
 const GROUND_TEXTURE_TILE_M = 6; // m par répétition de la texture forest_ground du sol extérieur
 const PARTICLE_HALF = 60; // demi-étendue des particules d'ambiance autour du spawn
+const SPAWN_SETBACK = 3; // m — recul du spawn côté route, pour ne pas apparaître DANS l'arche d'entrée
 const PEER_SMOOTH_RATE = 10; // lissage exponentiel de l'interpolation des pairs
 // Distribution pondérée de la météo : beau temps 3× plus fréquent.
 const WEATHER_OPTIONS: WeatherKey[] = ["clear", "clear", "clear", "brumeux", "orageux"];
@@ -156,6 +158,7 @@ export class Cemetery {
       this.composer = new EffectComposer(this.renderer, createFogRenderTarget(this.renderer));
       this.composer.addPass(new RenderPass(this.scene, this.camera));
       this.composer.addPass(new AutoExposurePass());
+      this.composer.addPass(new NanGuardPass());
       const size = this.renderer.getSize(new THREE.Vector2()).multiplyScalar(BLOOM_RESOLUTION_SCALE);
       this.composer.addPass(new UnrealBloomPass(size, BLOOM_STRENGTH, BLOOM_RADIUS, BLOOM_THRESHOLD));
       this.gradePass = createGoldenGradePass();
@@ -275,7 +278,10 @@ export class Cemetery {
     this.resizeGround(world.bounds, world.roadPoints, world.slots);
     this.controls.setBoundsRect(world.bounds);
 
-    const spawn = spawnCompanyId ? world.slots.find((s) => s.id === spawnCompanyId)?.entrance : undefined;
+    // Recul côté route : `entrance` est l'ancrage de l'ARCHE (world.ts) — y
+    // apparaître mettait un pilier en pleine face (aplat noir à l'écran).
+    const slot = spawnCompanyId ? world.slots.find((s) => s.id === spawnCompanyId) : undefined;
+    const spawn = slot ? toWorld(slot, 0, -SPAWN_SETBACK) : undefined;
     const start = spawn ?? world.start;
     this.controls.placeAt(start.x, start.z);
 

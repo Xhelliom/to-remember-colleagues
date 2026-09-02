@@ -1,7 +1,12 @@
 // Sol du monde extérieur (hors parcelles, chantier 2.3) : relief doux
 // (terrainHeightAt, même principe que l'intérieur des cimetières, terrain.ts)
-// qui s'annule à l'approche des parcelles et de la route — les deux restent
-// plates, comme le fondu de bordure du terrain intérieur (borderFade).
+// qui s'annule à l'approche de la route (zone visuellement dégagée) ET
+// s'ENFONCE à l'approche d'une parcelle — pas juste plate à la même hauteur
+// que le terrain intérieur du cimetière, qui occupe la MÊME emprise XZ (les
+// deux systèmes sont des géométries indépendantes qui se superposent). Un
+// simple fondu vers 0 z-fightait avec ce terrain intérieur dès qu'un chunk
+// se chargeait (bug observé : aplat noir scintillant à l'entrée d'un
+// cimetière) — l'enfoncement garantit qu'elles ne coïncident jamais.
 // Géométrie NON pré-rotée (comme le placeholder d'origine de cemetery.ts) :
 // le mesh applique sa propre `rotation.x = -Math.PI / 2`, donc ici la
 // "hauteur" se pose sur le composant Z local (cf. dérivation dans le commit).
@@ -16,7 +21,12 @@ const WORLD_GROUND_SEED = hashSeed("world:ground");
 const RELIEF_FACTOR = 0.5;
 const CELL_SIZE = 5; // m par maille — bien plus grossier que l'intérieur (1,5 m) : fond, pas sol arpenté
 const MAX_SEGMENTS = 96; // plafond par axe quelle que soit la taille du monde (perf)
-const FADE_WIDTH = 8; // m — distance de fondu vers 0 aux abords parcelles/route
+const ROAD_FADE_WIDTH = 8; // m — distance de fondu vers 0 aux abords de la route
+// Large : 4 m sur seulement 6 m (pente ~34°) donnait une vraie falaise, dans l'ombre
+// sous presque tous les angles — vu en jeu comme un aplat noir (bug session live-coding).
+// 24 m ⇒ pente moyenne ~9°, une dépression douce plutôt qu'un à-pic.
+const PARCEL_SINK_WIDTH = 24; // m — distance sur laquelle le sol s'enfonce à l'approche d'une parcelle
+const PARCEL_SINK_DEPTH = 4; // m — bien au-delà de l'amplitude du terrain intérieur (±2 m) : jamais coïncident
 
 function segmentsFor(size: number): number {
   return Math.max(1, Math.min(MAX_SEGMENTS, Math.round(size / CELL_SIZE)));
@@ -32,23 +42,29 @@ function distToSegment(x: number, z: number, a: Vec2, b: Vec2): number {
   return Math.hypot(x - (a.x + dx * t), z - (a.z + dz * t));
 }
 
-/** [0,1] — 0 tout près d'une parcelle ou de la route (sol plat imposé), 1 au
- *  loin (relief plein). Même principe que `terrain.ts:borderFade`. */
-function reliefFade(x: number, z: number, roadPoints: readonly Vec2[], slots: readonly WorldSlot[]): number {
+/** [0,1] — 0 tout près de la route (sol plat dégagé), 1 au loin (relief plein). */
+function roadFade(x: number, z: number, roadPoints: readonly Vec2[]): number {
+  let minDist = Infinity;
+  for (let i = 0; i < roadPoints.length - 1; i++) minDist = Math.min(minDist, distToSegment(x, z, roadPoints[i], roadPoints[i + 1]));
+  return Math.max(0, Math.min(1, minDist / ROAD_FADE_WIDTH));
+}
+
+/** [0,1] — 1 dans/tout près d'une parcelle (enfoncement max), 0 au-delà de
+ *  `PARCEL_SINK_WIDTH`. `distanceToSlot` vaut 0 n'importe où DANS le rectangle
+ *  réel de la parcelle (pas juste au centre), cf. worldLayout.ts. */
+function parcelProximity(x: number, z: number, slots: readonly WorldSlot[]): number {
   let minDist = Infinity;
   for (const s of slots) minDist = Math.min(minDist, distanceToSlot(s, { x, z }));
-  for (let i = 0; i < roadPoints.length - 1; i++) {
-    minDist = Math.min(minDist, distToSegment(x, z, roadPoints[i], roadPoints[i + 1]));
-  }
-  return Math.max(0, Math.min(1, minDist / FADE_WIDTH));
+  return 1 - Math.max(0, Math.min(1, minDist / PARCEL_SINK_WIDTH));
 }
 
 /** Hauteur du sol extérieur en un point MONDE — SOURCE UNIQUE réutilisée pour
  *  la géométrie du sol ET le placement des arbres de la forêt de transition
  *  (world.ts), afin qu'ils reposent exactement dessus (pas de flottement). */
 export function worldGroundHeightAt(x: number, z: number, roadPoints: readonly Vec2[], slots: readonly WorldSlot[]): number {
-  const fade = reliefFade(x, z, roadPoints, slots);
-  return terrainHeightAt(WORLD_GROUND_SEED, x, z) * RELIEF_FACTOR * fade;
+  const relief = terrainHeightAt(WORLD_GROUND_SEED, x, z) * RELIEF_FACTOR * roadFade(x, z, roadPoints);
+  const sink = parcelProximity(x, z, slots) * PARCEL_SINK_DEPTH;
+  return relief - sink;
 }
 
 /**

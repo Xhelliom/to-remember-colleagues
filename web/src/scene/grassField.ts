@@ -47,7 +47,12 @@ const GRASS_VERTEX_DEFINES = `
 `;
 
 /** Remplace `#include <normal_vertex>` : fond `vNormal` vers la normale de terrain
- *  selon la distance caméra↔brin (0.5 près → 1.0 loin, cf. NORMAL_BLEND_NEAR/FAR). */
+ *  selon la distance caméra↔brin (0.5 près → 1.0 loin, cf. NORMAL_BLEND_NEAR/FAR).
+ *
+ *  `instanceTerrainNormal` est un vecteur MONDE (calculé en JS par
+ *  `terrainNormalFromHeights`) tandis que `vNormal` sort de `<normal_vertex>` en
+ *  espace VUE — `normalMatrix` y est déjà appliqué. Il faut donc convertir le
+ *  premier avant de mélanger. */
 const GRASS_NORMAL_BLEND_GLSL = `
   #include <normal_vertex>
   vBladeT = aBladeT;
@@ -60,7 +65,8 @@ const GRASS_NORMAL_BLEND_GLSL = `
   float _grassDist = distance(cameraPosition, _grassWorldPos.xyz);
   float _grassRamp = clamp((_grassDist - NORMAL_BLEND_NEAR) / max(NORMAL_BLEND_FAR - NORMAL_BLEND_NEAR, 0.0001), 0.0, 1.0);
   float _grassBlend = mix(0.5, 1.0, _grassRamp);
-  vNormal = normalize(mix(vNormal, instanceTerrainNormal, _grassBlend));
+  vec3 _grassTerrainNormal = normalize(normalMatrix * instanceTerrainNormal);
+  vNormal = normalize(mix(vNormal, _grassTerrainNormal, _grassBlend));
 `;
 
 const GRASS_FRAGMENT_DEFINES = `

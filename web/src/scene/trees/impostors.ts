@@ -328,6 +328,11 @@ void main() {
 
   vec4 instanceOrigin = instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
   vec4 mvOrigin = modelViewMatrix * instanceOrigin;
+  // Instance derrière la caméra : w_clip serait négatif et le quad, décalé en
+  // espace vue, se rastérise en "mégatriangle" (varyings NaN → aplat noir géant
+  // une fois étalé par le bloom, bug session live-coding). On l'éjecte hors du
+  // volume de clip (z > w) : aucun fragment, clipping propre garanti.
+  if (mvOrigin.z >= 0.0) { gl_Position = vec4(0.0, 0.0, 2.0, 1.0); return; }
   mvOrigin.xy += position.xy * aQuadScale;
   gl_Position = projectionMatrix * mvOrigin;
 }

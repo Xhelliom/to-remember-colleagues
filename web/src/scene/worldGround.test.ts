@@ -13,12 +13,13 @@ describe("worldGroundHeightAt — relief du sol extérieur (2.3)", () => {
     expect(worldGroundHeightAt(50, -50, NO_ROAD, NO_SLOTS)).toBe(worldGroundHeightAt(50, -50, NO_ROAD, NO_SLOTS));
   });
 
-  it("est exactement plate (0) tout près d'une entrée de parcelle", () => {
+  it("s'enfonce nettement dans/près d'une parcelle — jamais coïncident avec le terrain intérieur (anti z-fighting)", () => {
     const slots = [slot(20, -20)];
-    expect(worldGroundHeightAt(20, -20, NO_ROAD, slots)).toBe(0);
+    // Amplitude du terrain intérieur = ±2 m (terrain.ts) : bien en-deçà de -2 pour ne jamais coïncider.
+    expect(worldGroundHeightAt(20, -20, NO_ROAD, slots)).toBeLessThan(-2);
   });
 
-  it("est exactement plate (0) tout près de la route", () => {
+  it("est exactement plate (0) tout près de la route (loin de toute parcelle)", () => {
     const road: Vec2[] = [{ x: 0, z: 0 }, { x: 0, z: -100 }];
     expect(worldGroundHeightAt(0, -50, road, NO_SLOTS)).toBe(0);
   });
@@ -38,10 +39,10 @@ describe("worldGroundHeightAt — relief du sol extérieur (2.3)", () => {
     expect(far.some((h) => Math.abs(h) > 1e-6)).toBe(true);
   });
 
-  it("reste dans l'amplitude brute de terrainHeightAt (le fondu ne peut jamais amplifier)", () => {
+  it("loin de toute parcelle, le relief reste dans l'amplitude brute de terrainHeightAt (pas d'enfoncement parasite)", () => {
     const slots = [slot(20, -20)];
     const road: Vec2[] = [{ x: 0, z: 0 }, { x: 0, z: -100 }];
-    for (const [x, z] of [[80, -80], [-80, -80], [80, -20], [-80, -150], [0, -50], [20, -20]]) {
+    for (const [x, z] of [[80, -80], [-80, -80], [80, -20], [-80, -150], [0, -50]]) {
       expect(Math.abs(worldGroundHeightAt(x, z, road, slots))).toBeLessThanOrEqual(2);
     }
   });

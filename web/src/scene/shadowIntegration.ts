@@ -9,7 +9,11 @@ import { CascadeShadowRig, resolveShadowPreset, type SunDirection } from "./shad
 
 // Activation derrière flag — voir plan/13-ombres.md. Bascule à valider visuellement
 // avant d'être un jour mise à `true` par défaut.
-export const CSM_SHADOWS_ENABLED = true;
+// Désactivé : l'herbe instanciée rend BLANC ÉCLATANT quand le rig CSM est actif
+// (warning console "depth texture comparison ... implementation-defined") — et
+// ces pixels sur-lumineux nourrissent le bloom en aplats. Chantier séparé :
+// corriger l'échantillonnage d'ombre du shader d'herbe avant de réactiver.
+export const CSM_SHADOWS_ENABLED = false;
 
 /**
  * Construit (ou non, selon le flag) le rig CSM et expose les points d'intégration
