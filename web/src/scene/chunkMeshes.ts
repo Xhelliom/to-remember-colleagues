@@ -15,6 +15,7 @@ import { DeadfallField } from "./deadfallField.ts";
 import { UnderstoryField } from "./trees/understoryField.ts";
 import { buildLanterns } from "./roadLanterns.ts";
 import { disposeObject } from "./disposeObject.ts";
+import { buildPondWater, cemeteryPonds, pondDepth, pondsInRange } from "./pond.ts";
 
 const LAMP_HEIGHT = 3.2;    // m — un vrai lampadaire, pas une borne de jardin
 const LAMP_SPACING = 11;    // m entre deux lampadaires le long de l'allée
@@ -27,6 +28,7 @@ const LIT_LAMPS_PER_CHUNK = 2;
 export type ChunkMeshes = {
   terrain: TerrainChunk;
   lamps: THREE.Group;
+  water: THREE.Group;
   grass: GrassField | null;
   veg: VegetationInstances | null;
   fence: THREE.Group;
@@ -77,16 +79,29 @@ export async function buildChunkMeshes(
   // chunkWidth = étendue du maillage (calée sur la clôture) ; layout.plotWidth =
   // largeur GLOBALE du couloir, utilisée pour le fondu de bordure afin qu'il
   // reste invariant d'un chunk à l'autre (pas de couture aux jointures).
-  const terrain = new TerrainChunk(companyId, frame, chunkWidth, layout.plotWidth, layout.plotDepth, range.start, range.end, mat);
+  // Les étangs sont calculés pour TOUT le cimetière (déterministe, invariant au
+  // découpage) : la tranche ne retient que ceux qu'elle touche, mais le terrain
+  // les creuse tous — un étang à cheval sur deux tranches doit se raccorder.
+  const ponds = cemeteryPonds(companyId, layout);
+  const terrain = new TerrainChunk(
+    companyId, frame, chunkWidth, layout.plotWidth, layout.plotDepth, range.start, range.end, mat,
+    layout.pathSegments, ponds,
+  );
+  const water = buildPondWater(pondsInRange(ponds, range.start, range.end), (x, z) => toWorld(frame, x, z));
 
   const veg = VegetationInstances.create(companyId, frame, chunkWidth, layout.plotDepth, range.start, range.end, terrain, renderer);
   const biomes = ClusterBiomes.create(companyId, frame, terrain, clustersInChunk);
   const grass = await (shouldHaveGrass(karma, ambiance.seasonKey)
       ? GrassField.create(companyId, karma, frame, chunkWidth, layout.plotDepth, range.start, range.end, terrain, {
-          // Pas d'herbe sur le chemin peint dans la splat (sol nu cohérent avec la texture).
+          // Pas d'herbe sur le chemin peint dans la splat (sol nu cohérent avec
+          // la texture) ni dans l'eau.
+          // ponytail: seule l'herbe est exclue des étangs. Arbres et rochers y
+          // sont mille fois moins denses (0,004/m²) ; les en écarter voudrait
+          // dire propager les étangs jusqu'à vegetation/deadfall/understory.
           exclude: (wx, wz) => {
             const local = toLocal(frame, { x: wx, z: wz });
-            return distanceToPath(layout.pathSegments, local.x, local.z) < PATH_HALF_WIDTH;
+            return distanceToPath(layout.pathSegments, local.x, local.z) < PATH_HALF_WIDTH
+              || pondDepth(local.x, local.z, ponds) > 0;
           },
         })
     : Promise.resolve(null));
@@ -106,13 +121,14 @@ export async function buildChunkMeshes(
 
   const lamps = buildChunkLamps(frame, layout.spinePoints, range, terrain);
 
-  return { terrain, lamps, grass, veg, fence, biomes, deadfall, understory };
+  return { terrain, lamps, water, grass, veg, fence, biomes, deadfall, understory };
 }
 
 /** Libère toutes les géométries/matériaux d'une tranche. */
 export function disposeChunkMeshes(chunk: ChunkMeshes) {
   chunk.terrain.dispose();
   disposeObject(chunk.lamps);
+  disposeObject(chunk.water);
   chunk.grass?.dispose();
   chunk.veg?.dispose();
   chunk.biomes?.dispose();

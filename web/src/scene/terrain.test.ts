@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import * as THREE from "three";
-import { terrainHeightAt, TerrainChunk } from "./terrain.ts";
+import { pathRelief, terraceHeight, terrainHeightAt, TerrainChunk } from "./terrain.ts";
 import type { Frame } from "../worldLayout.ts";
 
 const SEED = 12345;
@@ -57,5 +57,54 @@ describe("TerrainChunk.getHeightAt (phase 3 : tranche [zStart, zEnd[)", () => {
     // x=9 : dans l'ancien code, hors de la demi-largeur du chunk étroit (10) le
     // fondu tombait à ~0 alors qu'il restait à 1 côté large → hauteurs discordantes.
     expect(narrow.getHeightAt(9, 60)).toBe(wide.getHeightAt(9, 60));
+  });
+});
+
+describe("terraceHeight — mini-falaises", () => {
+  it("aplatit le milieu d'un palier : deux hauteurs voisines s'y confondent", () => {
+    const step = 1.6;
+    // 0.05 et 0.15 de palier tombent tous deux dans le plateau bas.
+    expect(terraceHeight(0.05 * step, step)).toBeCloseTo(terraceHeight(0.15 * step, step), 4);
+  });
+
+  it("concentre le dénivelé dans un talus court (c'est ce qui fait la falaise)", () => {
+    const step = 1.6;
+    const auTalus = terraceHeight(0.6 * step, step) - terraceHeight(0.4 * step, step);
+    const auPlateau = terraceHeight(0.2 * step, step) - terraceHeight(0.0 * step, step);
+    expect(auTalus).toBeGreaterThan(auPlateau * 5);
+  });
+
+  it("est monotone : le maillage ne peut pas se replier", () => {
+    let prev = -Infinity;
+    for (let h = -5; h <= 5; h += 0.05) {
+      const y = terraceHeight(h);
+      expect(y).toBeGreaterThanOrEqual(prev - 1e-9);
+      prev = y;
+    }
+  });
+
+  it("reste dans l'ordre de grandeur de l'entrée (pas d'emballement)", () => {
+    for (const h of [-4.5, -1, 0, 1, 4.5]) {
+      expect(Math.abs(terraceHeight(h) - h)).toBeLessThan(1.6);
+    }
+  });
+});
+
+describe("pathRelief — allée en creux", () => {
+  it("annule le relief sur l'allée : on y marche à plat", () => {
+    expect(pathRelief(0)).toBe(0);
+    expect(pathRelief(2)).toBe(0);
+  });
+
+  it("rend le relief plein une fois éloigné du chemin", () => {
+    expect(pathRelief(20)).toBe(1);
+  });
+
+  it("remonte progressivement, sans marche au bord de l'allée", () => {
+    const a = pathRelief(3);
+    const b = pathRelief(5);
+    expect(a).toBeGreaterThan(0);
+    expect(a).toBeLessThan(b);
+    expect(b).toBeLessThan(1);
   });
 });

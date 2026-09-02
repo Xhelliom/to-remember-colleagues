@@ -8,13 +8,51 @@
 import * as THREE from "three";
 import { seededRandom } from "../graves.ts";
 import { hashSeed } from "../procedural.ts";
+import { distanceToPath, type PathSegment } from "../procedural.ts";
+import { pondDepth, pondRelief, type Pond } from "./pond.ts";
 import { toLocal, toWorld, type Frame } from "../worldLayout.ts";
 import { disposeObject } from "./disposeObject.ts";
 
 const CELL_SIZE = 1.5;    // taille de maille du terrain (m) — indépendante de la taille du chunk
-const AMPLITUDE = 2.0;    // amplitude max en mètres
+const AMPLITUDE = 4.5;    // amplitude max en mètres
 const BASE_FREQ = 0.05;   // fréquence de base en coordonnées MONDE (doux, pas montagne)
 const FADE_WIDTH = 4;     // mètres de fondu vers 0 en bordure réelle
+
+// --- Terrasses : le FBM seul donne des collines molles, sans ligne de force.
+// Quantifier la hauteur en paliers séparés par des talus courts produit des
+// mini-falaises — des ruptures que l'œil accroche, et de l'ombre portée. ---
+const TERRACE_STEP = 1.6;      // m — dénivelé d'un palier
+/** Fraction du palier consacrée au talus : bas = falaise franche, haut = pente molle. */
+const TERRACE_SHARPNESS = 0.3;
+
+// --- Chemin en creux : l'allée et ses bras restent plats et le relief monte
+// de part et d'autre. Le visiteur marche dans un vallon, pas sur une bosse. ---
+const PATH_FLAT_HALF = 2.2;  // m — largeur strictement plate autour de l'axe
+const PATH_FLAT_FADE = 6;    // m — remontée progressive vers le relief plein
+/** Marge en Z pour ne retenir que les segments de chemin utiles à une tranche. */
+const PATH_SEGMENT_MARGIN = 12;
+
+function smoothstep(edge0: number, edge1: number, x: number): number {
+  const t = Math.max(0, Math.min(1, (x - edge0) / (edge1 - edge0)));
+  return t * t * (3 - 2 * t);
+}
+
+/**
+ * Quantifie une hauteur en paliers séparés par des talus raides.
+ * Pure et monotone : deux points voisins ne peuvent pas s'inverser, donc pas
+ * de repli du maillage.
+ */
+export function terraceHeight(h: number, step = TERRACE_STEP, sharpness = TERRACE_SHARPNESS): number {
+  const t = h / step;
+  const base = Math.floor(t);
+  const frac = t - base;
+  return (base + smoothstep(0.5 - sharpness / 2, 0.5 + sharpness / 2, frac)) * step;
+}
+
+/** [0,1] — 0 sur le chemin (sol plat imposé), 1 au-delà de la zone de remontée. */
+export function pathRelief(distance: number): number {
+  return smoothstep(PATH_FLAT_HALF, PATH_FLAT_HALF + PATH_FLAT_FADE, distance);
+}
 
 /** FBM 3 octaves avec gradient Perlin simplifié (table de permutation seedée). */
 function makeFbm(seed: number) {
@@ -101,6 +139,12 @@ export class TerrainChunk {
   private readonly plotDepth: number;
   private readonly zStart: number;
   private readonly zEnd: number;
+  /** Segments de chemin pouvant influencer cette tranche (les autres sont trop
+   *  loin pour peser) — la hauteur est échantillonnée des milliers de fois par
+   *  chunk, tester tout le cimetière à chaque appel serait ruineux. */
+  private readonly nearbyPath: PathSegment[];
+  /** Étangs du cimetière : ils creusent le terrain et aplanissent leurs abords. */
+  private readonly ponds: readonly Pond[];
 
   constructor(
     companyId: string,
@@ -111,6 +155,8 @@ export class TerrainChunk {
     zStart: number,
     zEnd: number,
     mat: THREE.Material,
+    pathSegments: readonly PathSegment[] = [],
+    ponds: readonly Pond[] = [],
   ) {
     this.seed = hashSeed(companyId + ":terrain");
     this.frame = frame;
@@ -119,6 +165,11 @@ export class TerrainChunk {
     this.plotDepth = plotDepth;
     this.zStart = zStart;
     this.zEnd = zEnd;
+    this.nearbyPath = pathSegments.filter(
+      (p) => Math.max(p.z0, p.z1) >= zStart - PATH_SEGMENT_MARGIN && Math.min(p.z0, p.z1) <= zEnd + PATH_SEGMENT_MARGIN,
+    );
+
+    this.ponds = ponds;
 
     const depth = zEnd - zStart;
     const zMid = (zStart + zEnd) / 2;
@@ -148,7 +199,11 @@ export class TerrainChunk {
 
   private heightAtLocal(localX: number, localZ: number): number {
     const world = toWorld(this.frame, localX, localZ);
-    return terrainHeightAt(this.seed, world.x, world.z) * borderFade(localX, localZ, this.fadeHalf, this.plotDepth);
+    const shaped = terraceHeight(terrainHeightAt(this.seed, world.x, world.z));
+    const fade = borderFade(localX, localZ, this.fadeHalf, this.plotDepth);
+    const relief = this.nearbyPath.length ? pathRelief(distanceToPath(this.nearbyPath, localX, localZ)) : 1;
+    const water = this.ponds.length ? pondRelief(localX, localZ, this.ponds) : 1;
+    return shaped * fade * relief * water - pondDepth(localX, localZ, this.ponds);
   }
 
   /** Hauteur exacte (FBM + fondu de bordure) en coordonnées monde ; 0 hors de cette tranche. */

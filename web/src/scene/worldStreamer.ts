@@ -242,7 +242,7 @@ export class WorldStreamer {
     if (chunk.biomes) this.groups.vegetationGroup.add(chunk.biomes.group);
     if (chunk.deadfall) this.groups.vegetationGroup.add(chunk.deadfall.group);
     if (chunk.understory) this.groups.vegetationGroup.add(chunk.understory.group);
-    this.groups.worldGroup.add(chunk.fence, chunk.lamps);
+    this.groups.worldGroup.add(chunk.fence, chunk.lamps, chunk.water);
     this.loadedChunks.set(`${companyId}:${index}`, chunk);
   }
 
@@ -257,7 +257,7 @@ export class WorldStreamer {
     if (chunk.biomes) this.groups.vegetationGroup.remove(chunk.biomes.group);
     if (chunk.deadfall) this.groups.vegetationGroup.remove(chunk.deadfall.group);
     if (chunk.understory) this.groups.vegetationGroup.remove(chunk.understory.group);
-    this.groups.worldGroup.remove(chunk.fence, chunk.lamps);
+    this.groups.worldGroup.remove(chunk.fence, chunk.lamps, chunk.water);
   }
 
   private async loadChunk(slot: WorldSlotWithCompany, layout: CemeteryLayout, index: number) {
