@@ -34,6 +34,9 @@ export type ClusterInfo = {
   x: number; z: number; chunk: number; propKind: ClusterPropKind;
   approach: { x: number; z: number };
 };
+/** Paramètres du serpentement de l'allée centrale, tirés de la graine. */
+export type Meander = { amp: number; period: number };
+
 export type CemeteryLayout = {
   /** Largeur fixe du couloir (mur d'enceinte), juxtaposable le long de la route. */
   plotWidth: number;
@@ -46,11 +49,33 @@ export type CemeteryLayout = {
   /** Étendue en Z de chaque chunk, dans l'ordre des index. */
   chunkRanges: ChunkRange[];
   clusters: ClusterInfo[];
-  /** Épine (x = 0) + un segment par bras (rangée ou cluster) — pour peindre le chemin. */
+  /** Serpentement de l'allée centrale — permet de recalculer `spineXAt` en aval. */
+  meander: Meander;
+  /** Polyligne de l'allée centrale, de l'entrée au fond : ce que suivent les
+   *  lampadaires (lampposts.ts). Les bras s'y accrochent. */
+  spinePoints: Vec2[];
+  /** Allée centrale découpée + un segment par bras — pour peindre le chemin. */
   pathSegments: PathSegment[];
 };
 
-const PLOT_WIDTH_BASE = 30; // largeur mini garantissant qu'aucun bras ne sorte du couloir
+/** Point du repère local d'un cimetière. */
+export type Vec2 = { x: number; z: number };
+
+// L'allée serpente : une épine rectiligne donnait un couloir de gare, et
+// annulait tout effet de découverte — on voyait le fond depuis l'entrée.
+const MEANDER_AMP_BASE = 4.5;   // m — écart de l'allée par rapport à l'axe
+const MEANDER_AMP_JITTER = 2.5;
+const MEANDER_PERIOD_BASE = 30; // m — longueur d'une oscillation complète
+const MEANDER_PERIOD_JITTER = 14;
+/** Seconde harmonique : casse la régularité du sinus, sans le rendre illisible. */
+const MEANDER_HARMONIC_RATIO = 2.3;
+const MEANDER_HARMONIC_WEIGHT = 0.35;
+/** Pas d'échantillonnage de l'allée (m) — assez fin pour que le chemin peint
+ *  dans la splat map suive la courbe sans facettes visibles. */
+const SPINE_SAMPLE_STEP = 2.5;
+
+// Largeur du couloir : il doit contenir le serpentement ET la portée maximale
+// d'un bras de chaque côté, sinon les tombes du bord traversent le mur.
 const PLOT_WIDTH_JITTER = 6;
 const GRAVE_SPACING = 2.4; // distance mini garantie entre deux tombes
 const SPINE_STEP_BASE = 4; // pas d'avance de l'épine (chemin principal) en Z
@@ -71,6 +96,26 @@ const CLUSTER_PROP_ROCKS_CHANCE = 0.7;
 const BRANCHES_PER_CHUNK = 4; // regroupement en tranches (phases 3 et 5)
 const END_MARGIN = 6; // marge d'enceinte en bout de chemin
 
+const PLOT_WIDTH_MARGIN = 4; // dégagement entre la dernière tombe et le mur
+const PLOT_WIDTH_BASE = 2 * (MEANDER_AMP_BASE + MEANDER_AMP_JITTER + BRANCH_ARM_MAX + CLUSTER_RADIUS + PLOT_WIDTH_MARGIN);
+
+/** Écart en X de l'allée à la profondeur `z` — nul à l'entrée (z = 0), pour
+ *  que l'allée parte bien du milieu de l'arche. */
+export function spineXAt(m: Meander, z: number): number {
+  const phase = (z / m.period) * Math.PI * 2;
+  return m.amp * (Math.sin(phase) + MEANDER_HARMONIC_WEIGHT * Math.sin(phase * MEANDER_HARMONIC_RATIO))
+    / (1 + MEANDER_HARMONIC_WEIGHT);
+}
+
+/** Polyligne de l'allée, de l'entrée à `depth`. */
+function sampleSpine(m: Meander, depth: number): Vec2[] {
+  const steps = Math.max(1, Math.ceil(depth / SPINE_SAMPLE_STEP));
+  return Array.from({ length: steps + 1 }, (_, i) => {
+    const z = (i / steps) * depth;
+    return { x: spineXAt(m, z), z };
+  });
+}
+
 // Écart mini garanti entre deux points de ramification consécutifs sur
 // l'épine, dérivé des portées maximales : aucun bras (rangée ou cluster) ne
 // peut alors géométriquement en atteindre un autre — par construction, sans
@@ -80,7 +125,7 @@ const MIN_BRANCH_GAP = 2 * BRANCH_Z_SPREAD_HALF + GRAVE_SPACING;
 
 /** Place une rangée de tombes le long du bras, en s'arrêtant à `remaining`. */
 function placeRow(
-  rand: () => number,
+  xBase: number,
   zBase: number,
   dirX: number,
   dirZ: number,
@@ -94,7 +139,7 @@ function placeRow(
   const row: Placement[] = [];
   for (let i = 0; i < n; i++) {
     const d = BRANCH_START_GAP + i * GRAVE_SPACING;
-    row.push({ x: dirX * d, z: zBase + dirZ * d, rotY, chunk, kind: "row" });
+    row.push({ x: xBase + dirX * d, z: zBase + dirZ * d, rotY, chunk, kind: "row" });
   }
   return row;
 }
@@ -152,6 +197,10 @@ function buildChunkRanges(branchZs: number[], chunkCount: number, plotDepth: num
 export function cemeteryLayout(companyId: string, count: number): CemeteryLayout {
   const rand = seededRandom(hashSeed(companyId));
   const plotWidth = PLOT_WIDTH_BASE + rand() * PLOT_WIDTH_JITTER;
+  const meander: Meander = {
+    amp: MEANDER_AMP_BASE + rand() * MEANDER_AMP_JITTER,
+    period: MEANDER_PERIOD_BASE + rand() * MEANDER_PERIOD_JITTER,
+  };
   if (count === 0) {
     return {
       plotWidth,
@@ -160,6 +209,8 @@ export function cemeteryLayout(companyId: string, count: number): CemeteryLayout
       chunkCount: 1,
       chunkRanges: [{ start: 0, end: END_MARGIN }],
       clusters: [],
+      meander,
+      spinePoints: [],
       pathSegments: [],
     };
   }
@@ -168,7 +219,7 @@ export function cemeteryLayout(companyId: string, count: number): CemeteryLayout
 
   const placements: Placement[] = [];
   const clusters: ClusterInfo[] = [];
-  const pathSegments: PathSegment[] = [];
+  const branches: PathSegment[] = [];
   const branchZs: number[] = [];
   let z = 0;
   let branchIndex = 0;
@@ -185,18 +236,19 @@ export function cemeteryLayout(companyId: string, count: number): CemeteryLayout
     const chunk = Math.floor(branchIndex / BRANCHES_PER_CHUNK);
     const remaining = count - placements.length;
     const isCluster = rand() < clusterRatio;
+    // Le bras s'accroche à l'allée là où elle passe à cette profondeur, pas sur
+    // un axe fixe : c'est ce qui fait que les sous-allées suivent le serpentement.
+    const xBase = spineXAt(meander, z);
 
-    // Bras du chemin, de l'épine (x=0) vers la rangée ou le cluster.
-    pathSegments.push({ x0: 0, z0: z, x1: dirX * armLength, z1: z + dirZ * armLength });
+    branches.push({ x0: xBase, z0: z, x1: xBase + dirX * armLength, z1: z + dirZ * armLength });
 
     if (isCluster) {
-      const cx = dirX * armLength;
+      const cx = xBase + dirX * armLength;
       const cz = z + dirZ * armLength;
       placements.push(...placeCluster(rand, cx, cz, chunk, remaining));
-      // Le bras part de l'épine (x = 0) au z courant : c'est l'accroche/entrée du cluster.
-      clusters.push({ x: cx, z: cz, chunk, propKind: drawPropKind(rand), approach: { x: 0, z } });
+      clusters.push({ x: cx, z: cz, chunk, propKind: drawPropKind(rand), approach: { x: xBase, z } });
     } else {
-      placements.push(...placeRow(rand, z, dirX, dirZ, armLength, chunk, remaining));
+      placements.push(...placeRow(xBase, z, dirX, dirZ, armLength, chunk, remaining));
     }
     branchZs.push(z);
     branchIndex++;
@@ -205,9 +257,16 @@ export function cemeteryLayout(companyId: string, count: number): CemeteryLayout
   const plotDepth = z + BRANCH_Z_SPREAD_HALF + END_MARGIN;
   const chunkCount = Math.floor((branchIndex - 1) / BRANCHES_PER_CHUNK) + 1;
   const chunkRanges = buildChunkRanges(branchZs, chunkCount, plotDepth);
-  // Épine : de l'entrée jusqu'à la dernière ramification.
-  pathSegments.unshift({ x0: 0, z0: 0, x1: 0, z1: z });
-  return { plotWidth, plotDepth, placements, chunkCount, chunkRanges, clusters, pathSegments };
+  // L'allée est échantillonnée puis aplatie en segments : le peintre de sol
+  // (grass.ts) et la distance au chemin ne connaissent que des segments droits.
+  const spinePoints = sampleSpine(meander, z);
+  const spineSegments = spinePoints.slice(1).map((p, i) => ({
+    x0: spinePoints[i].x, z0: spinePoints[i].z, x1: p.x, z1: p.z,
+  }));
+  return {
+    plotWidth, plotDepth, placements, chunkCount, chunkRanges, clusters, meander, spinePoints,
+    pathSegments: [...spineSegments, ...branches],
+  };
 }
 
 /** Distance d'un point (repère local) au segment [a,b] — même principe que world.ts. */

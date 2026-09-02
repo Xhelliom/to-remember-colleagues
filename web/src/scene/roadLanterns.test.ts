@@ -46,4 +46,15 @@ describe("lanternPlacements — dispersion le long de la route (2.2)", () => {
     const placements = lanternPlacements(straightLine(20));
     for (const p of placements) expect(Math.abs(p.x)).toBeGreaterThan(3); // > ROAD_HALF (3)
   });
+
+  it("accepte un espacement et un écart propres à l'allée d'un cimetière (plus serrés que la route)", () => {
+    const placements = lanternPlacements(straightLine(60), 11, 1.8);
+    for (const p of placements) expect(Math.abs(p.x)).toBeCloseTo(1.8);
+    for (let i = 1; i < placements.length; i++) {
+      const d = Math.hypot(placements[i].x - placements[i - 1].x, placements[i].z - placements[i - 1].z);
+      expect(d).toBeGreaterThanOrEqual(11 - 1e-9);
+    }
+    // Plus serrés que la route : davantage de lampadaires sur la même longueur.
+    expect(placements.length).toBeGreaterThan(lanternPlacements(straightLine(60)).length);
+  });
 });

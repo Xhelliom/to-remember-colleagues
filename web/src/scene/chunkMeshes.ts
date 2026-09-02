@@ -4,7 +4,7 @@
 import type * as THREE from "three";
 import type { Ambiance } from "../ambiance.ts";
 import { distanceToPath, type CemeteryLayout, type ChunkRange } from "../procedural.ts";
-import { toLocal, type Frame } from "../worldLayout.ts";
+import { toLocal, toWorld, type Frame } from "../worldLayout.ts";
 import { buildGroundMaterial, PATH_HALF_WIDTH } from "./grass.ts";
 import { GrassField, shouldHaveGrass } from "./grassField.ts";
 import { TerrainChunk } from "./terrain.ts";
@@ -13,9 +13,20 @@ import { buildChunkFence, chunkReach, disposeFence } from "./fence.ts";
 import { ClusterBiomes } from "./biomes/clairiere/builder.ts";
 import { DeadfallField } from "./deadfallField.ts";
 import { UnderstoryField } from "./trees/understoryField.ts";
+import { buildLanterns } from "./roadLanterns.ts";
+import { disposeObject } from "./disposeObject.ts";
+
+const LAMP_HEIGHT = 3.2;    // m — un vrai lampadaire, pas une borne de jardin
+const LAMP_SPACING = 11;    // m entre deux lampadaires le long de l'allée
+const LAMP_OFFSET = 1.8;    // m — en bord d'allée, hors du passage
+const LAMP_INTENSITY = 2.4;
+/** PointLight réelles par tranche : au-delà, le coût de compilation des shaders
+ *  grimpe pour chaque objet éclairé. Les autres têtes se contentent de l'émissif. */
+const LIT_LAMPS_PER_CHUNK = 2;
 
 export type ChunkMeshes = {
   terrain: TerrainChunk;
+  lamps: THREE.Group;
   grass: GrassField | null;
   veg: VegetationInstances | null;
   fence: THREE.Group;
@@ -23,6 +34,26 @@ export type ChunkMeshes = {
   deadfall: DeadfallField | null;
   understory: UnderstoryField | null;
 };
+
+/**
+ * Lampadaires bordant l'allée dans les limites de la tranche.
+ * ponytail: toujours allumés, y compris de jour — comme les bornes de la route.
+ * Les indexer sur l'heure imposerait de les retrouver et de les rallumer quand
+ * l'ambiance change ; en plein soleil, une tête jaune faible ne se voit pas.
+ */
+function buildChunkLamps(
+  frame: Frame, spinePoints: readonly { x: number; z: number }[], range: ChunkRange, terrain: TerrainChunk,
+): THREE.Group {
+  const inRange = spinePoints.filter((p) => p.z >= range.start && p.z <= range.end);
+  return buildLanterns(inRange.map((p) => toWorld(frame, p.x, p.z)), {
+    offset: LAMP_OFFSET,
+    spacing: LAMP_SPACING,
+    poleHeight: LAMP_HEIGHT,
+    litCount: LIT_LAMPS_PER_CHUNK,
+    lightIntensity: LAMP_INTENSITY,
+    groundY: (x, z) => terrain.getHeightAt(x, z),
+  });
+}
 
 /** Construit les maillages (terrain, herbe, végétation, clôture) d'une tranche. */
 export async function buildChunkMeshes(
@@ -73,12 +104,15 @@ export async function buildChunkMeshes(
     companyId, frame, chunkWidth, range.start, range.end, layout.pathSegments, terrain, veg?.treeLod?.placements ?? [],
   );
 
-  return { terrain, grass, veg, fence, biomes, deadfall, understory };
+  const lamps = buildChunkLamps(frame, layout.spinePoints, range, terrain);
+
+  return { terrain, lamps, grass, veg, fence, biomes, deadfall, understory };
 }
 
 /** Libère toutes les géométries/matériaux d'une tranche. */
 export function disposeChunkMeshes(chunk: ChunkMeshes) {
   chunk.terrain.dispose();
+  disposeObject(chunk.lamps);
   chunk.grass?.dispose();
   chunk.veg?.dispose();
   chunk.biomes?.dispose();

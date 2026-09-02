@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cemeteryLayout, distanceToPath, hashSeed } from "./procedural.ts";
+import { cemeteryLayout, distanceToPath, hashSeed, spineXAt } from "./procedural.ts";
 
 const GRAVE_SPACING = 2.4; // doit rester en phase avec la constante de procedural.ts
 const CLUSTER_RADIUS = 3; // idem
@@ -82,13 +82,13 @@ describe("cemeteryLayout (chemin ramifié, plan cimetière)", () => {
     for (const c of a) expect(["tree", "rocks", "flat"]).toContain(c.propKind);
   });
 
-  it("porte l'accroche d'entrée du cluster sur l'épine (x = 0), déterministe (orientation du biome)", () => {
+  it("porte l'accroche d'entrée du cluster SUR l'allée serpentante, déterministe (orientation du biome)", () => {
     const a = cemeteryLayout("approach", 200);
     const b = cemeteryLayout("approach", 200);
     expect(a.clusters.length).toBeGreaterThan(0);
     for (const c of a.clusters) {
-      // L'accroche est sur l'épine (x = 0) et proche du centre en Z (bras court).
-      expect(c.approach.x).toBe(0);
+      // L'accroche suit le serpentement (plus x = 0) et reste proche en Z (bras court).
+      expect(c.approach.x).toBeCloseTo(spineXAt(a.meander, c.approach.z));
       expect(Math.abs(c.approach.z - c.z)).toBeLessThanOrEqual(BRANCH_ARM_MAX_LOCAL);
     }
     // Déterminisme : même id → mêmes accroches.
@@ -119,14 +119,38 @@ describe("cemeteryLayout (chemin ramifié, plan cimetière)", () => {
     expect(ratio).toBeLessThan(0.85);
   });
 
-  it("expose un chemin (épine + un segment par ramification) pour peindre le sol", () => {
-    const { pathSegments } = cemeteryLayout("path", 150);
-    // Au moins l'épine + une ramification pour 150 tombes.
-    expect(pathSegments.length).toBeGreaterThan(1);
-    // L'épine (premier segment) part de l'entrée (0,0).
+  it("expose un chemin (allée découpée + un segment par ramification) pour peindre le sol", () => {
+    const { pathSegments, spinePoints, meander } = cemeteryLayout("path", 150);
+    expect(pathSegments.length).toBeGreaterThan(spinePoints.length);
+    // L'allée part de l'entrée, au milieu de l'arche.
     expect(pathSegments[0]).toMatchObject({ x0: 0, z0: 0 });
-    // Chaque bras part de l'épine (x = 0).
-    for (const seg of pathSegments.slice(1)) expect(seg.x0).toBe(0);
+    // Chaque bras s'accroche à l'allée là où elle passe à cette profondeur.
+    for (const seg of pathSegments.slice(spinePoints.length - 1)) {
+      expect(seg.x0).toBeCloseTo(spineXAt(meander, seg.z0));
+    }
+  });
+
+  it("serpente : l'allée s'écarte franchement de l'axe, sans jamais sortir du couloir", () => {
+    const { spinePoints, plotWidth } = cemeteryLayout("meander", 200);
+    const ecarts = spinePoints.map((p) => Math.abs(p.x));
+    expect(Math.max(...ecarts)).toBeGreaterThan(2); // sinon c'est un couloir droit
+    expect(Math.max(...ecarts)).toBeLessThan(plotWidth / 2);
+    // Elle repasse aussi par le milieu : c'est une oscillation, pas une dérive.
+    expect(Math.min(...ecarts)).toBeLessThan(1);
+  });
+
+  it("part exactement du milieu de l'entrée (sous l'arche)", () => {
+    for (const id of ["a", "b", "org-42"]) {
+      expect(spineXAt(cemeteryLayout(id, 50).meander, 0)).toBeCloseTo(0);
+    }
+  });
+
+  it("échantillonne l'allée assez finement pour que les segments restent courts", () => {
+    const { spinePoints } = cemeteryLayout("sampling", 200);
+    for (let i = 1; i < spinePoints.length; i++) {
+      const d = Math.hypot(spinePoints[i].x - spinePoints[i - 1].x, spinePoints[i].z - spinePoints[i - 1].z);
+      expect(d).toBeLessThan(4);
+    }
   });
 
   it("chemin vide (aucune tombe) : pas de segment", () => {
