@@ -96,6 +96,16 @@ export class WorldStreamer {
     }
   }
 
+  /** Hauteur du terrain d'un cimetière sous (x, z), ou `null` si aucune tranche
+   *  chargée ne couvre ce point — à l'appelant de retomber sur le sol extérieur. */
+  groundHeightAt(x: number, z: number): number | null {
+    for (const chunk of this.loadedChunks.values()) {
+      const h = chunk.terrain.heightIfInside(x, z);
+      if (h !== null) return h;
+    }
+    return null;
+  }
+
   /** Lit et remet à zéro le drapeau de scène modifiée (chunk/tombe ajouté ou retiré). */
   consumeSceneDirty(): boolean {
     const dirty = this.sceneDirty;

@@ -2,6 +2,8 @@ import * as THREE from "three";
 import { PointerLockControls } from "three/addons/controls/PointerLockControls.js";
 
 export const EYE_HEIGHT = 1.7;
+/** Vitesse de rattrapage de la hauteur du sol (1/s) — au-dessus, ça tressaute. */
+const GROUND_FOLLOW_RATE = 12;
 const WALK_SPEED = 4.2;
 const RUN_SPEED = 8.0;
 const ACCELERATION = 8;
@@ -46,6 +48,8 @@ export class FirstPersonControls {
   private bound = 20;
   // Bornes rectangulaires (route du hub) ; null → bornes carrées ±bound (parcelle).
   private boundsRect: { minX: number; maxX: number; minZ: number; maxZ: number } | null = null;
+  /** Hauteur du sol sous la caméra ; plate tant que `setGroundHeight` n'a pas été appelée. */
+  private groundAt: (x: number, z: number) => number = () => 0;
   // DEV uniquement — caméra libre sans contraintes de sol ni de bounds.
   private freeflight = false;
   private freeUp = false;
@@ -98,8 +102,14 @@ export class FirstPersonControls {
   }
 
   placeAt(x: number, z: number) {
-    this.object.position.set(x, EYE_HEIGHT, z);
+    this.object.position.set(x, this.groundAt(x, z) + EYE_HEIGHT, z);
     this.velocity.set(0, 0, 0);
+  }
+
+  /** Branche le relief : la caméra colle au sol au lieu de flotter à hauteur
+   *  fixe. Sans cette source, tout reste plat (comportement d'origine). */
+  setGroundHeight(fn: (x: number, z: number) => number) {
+    this.groundAt = fn;
   }
 
   update(dt: number) {
@@ -136,7 +146,11 @@ export class FirstPersonControls {
         p.x = THREE.MathUtils.clamp(p.x, -this.bound, this.bound);
         p.z = THREE.MathUtils.clamp(p.z, -this.bound, this.bound);
       }
-      p.y = EYE_HEIGHT;
+      // Lissage vertical : le sol peut sauter d'un palier au chargement d'une
+      // tranche, ou quand on franchit un talus — sans amortissement, la caméra
+      // tressaute. La montée reste rapide pour ne jamais s'enfoncer longtemps.
+      const target = this.groundAt(p.x, p.z) + EYE_HEIGHT;
+      p.y += (target - p.y) * Math.min(1, GROUND_FOLLOW_RATE * dt);
     }
   }
 

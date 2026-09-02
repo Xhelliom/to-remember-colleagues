@@ -153,8 +153,14 @@ export class TerrainChunk {
 
   /** Hauteur exacte (FBM + fondu de bordure) en coordonnées monde ; 0 hors de cette tranche. */
   getHeightAt(wx: number, wz: number): number {
+    return this.heightIfInside(wx, wz) ?? 0;
+  }
+
+  /** Comme `getHeightAt`, mais `null` hors de la tranche — la caméra doit
+   *  savoir si ce sol la concerne, là où un placement se contente de 0. */
+  heightIfInside(wx: number, wz: number): number | null {
     const local = toLocal(this.frame, { x: wx, z: wz });
-    if (Math.abs(local.x) > this.halfWidth || local.z < this.zStart || local.z > this.zEnd) return 0;
+    if (Math.abs(local.x) > this.halfWidth || local.z < this.zStart || local.z > this.zEnd) return null;
     return this.heightAtLocal(local.x, local.z);
   }
 

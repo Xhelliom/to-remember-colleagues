@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { worldGroundHeightAt } from "./worldGround.ts";
+import { buildWorldGroundGeometry, worldGroundHeightAt } from "./worldGround.ts";
 import type { Vec2, WorldSlot } from "../worldLayout.ts";
 
 const NO_ROAD: Vec2[] = [];
@@ -13,10 +13,13 @@ describe("worldGroundHeightAt — relief du sol extérieur (2.3)", () => {
     expect(worldGroundHeightAt(50, -50, NO_ROAD, NO_SLOTS)).toBe(worldGroundHeightAt(50, -50, NO_ROAD, NO_SLOTS));
   });
 
-  it("s'enfonce nettement dans/près d'une parcelle — jamais coïncident avec le terrain intérieur (anti z-fighting)", () => {
+  it("passe juste sous le terrain intérieur près d'une parcelle, sans creuser un fossé", () => {
     const slots = [slot(20, -20)];
-    // Amplitude du terrain intérieur = ±2 m (terrain.ts) : bien en-deçà de -2 pour ne jamais coïncider.
-    expect(worldGroundHeightAt(20, -20, NO_ROAD, slots)).toBeLessThan(-2);
+    const h = worldGroundHeightAt(20, -20, NO_ROAD, slots);
+    // Sous zéro : la frange non découpée ne peut pas être coplanaire avec le
+    // terrain intérieur. Mais franchissable — la caméra suit ce sol désormais.
+    expect(h).toBeLessThan(0);
+    expect(h).toBeGreaterThan(-1);
   });
 
   it("est exactement plate (0) tout près de la route (loin de toute parcelle)", () => {
@@ -45,5 +48,46 @@ describe("worldGroundHeightAt — relief du sol extérieur (2.3)", () => {
     for (const [x, z] of [[80, -80], [-80, -80], [80, -20], [-80, -150], [0, -50]]) {
       expect(Math.abs(worldGroundHeightAt(x, z, road, slots))).toBeLessThanOrEqual(2);
     }
+  });
+});
+
+describe("buildWorldGroundGeometry — découpe sous les parcelles", () => {
+  const bounds = { minX: -40, maxX: 40, minZ: -60, maxZ: 20 };
+  /** Centroïdes XZ monde de tous les triangles de la géométrie. */
+  function centroids(slots: WorldSlot[]) {
+    const geo = buildWorldGroundGeometry(bounds, NO_ROAD, slots);
+    const index = geo.getIndex()!;
+    const pos = geo.getAttribute("position");
+    const cx = (bounds.minX + bounds.maxX) / 2;
+    const cz = (bounds.minZ + bounds.maxZ) / 2;
+    const out: Vec2[] = [];
+    for (let t = 0; t < index.count; t += 3) {
+      let sx = 0;
+      let sy = 0;
+      for (let k = 0; k < 3; k++) {
+        const v = index.getX(t + k);
+        sx += pos.getX(v);
+        sy += pos.getY(v);
+      }
+      out.push({ x: cx + sx / 3, z: cz - sy / 3 });
+    }
+    return out;
+  }
+
+  it("ne maille plus l'intérieur d'une parcelle : c'est le terrain du cimetière qui l'occupe", () => {
+    // Parcelle de 10 de large sur 20 de long, entrée en (0, -10), orientée +Z.
+    const inside = centroids([slot(0, -10)]).filter((p) => Math.abs(p.x) < 3 && p.z > -6 && p.z < 6);
+    expect(inside).toHaveLength(0);
+  });
+
+  it("laisse le reste du monde intact (la découpe ne mange pas tout)", () => {
+    expect(centroids([slot(0, -10)]).length).toBeGreaterThan(0);
+    expect(centroids([slot(0, -10)]).length).toBeLessThan(centroids([]).length);
+  });
+
+  it("sans parcelle, aucun triangle n'est retiré", () => {
+    const geo = buildWorldGroundGeometry(bounds, NO_ROAD, []);
+    const plain = buildWorldGroundGeometry(bounds, NO_ROAD, NO_SLOTS);
+    expect(geo.getIndex()!.count).toBe(plain.getIndex()!.count);
   });
 });

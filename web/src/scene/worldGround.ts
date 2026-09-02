@@ -1,18 +1,21 @@
 // Sol du monde extérieur (hors parcelles, chantier 2.3) : relief doux
 // (terrainHeightAt, même principe que l'intérieur des cimetières, terrain.ts)
-// qui s'annule à l'approche de la route (zone visuellement dégagée) ET
-// s'ENFONCE à l'approche d'une parcelle — pas juste plate à la même hauteur
-// que le terrain intérieur du cimetière, qui occupe la MÊME emprise XZ (les
-// deux systèmes sont des géométries indépendantes qui se superposent). Un
-// simple fondu vers 0 z-fightait avec ce terrain intérieur dès qu'un chunk
-// se chargeait (bug observé : aplat noir scintillant à l'entrée d'un
-// cimetière) — l'enfoncement garantit qu'elles ne coïncident jamais.
+// qui s'annule à l'approche de la route (zone visuellement dégagée).
+//
+// Sous une parcelle, le terrain intérieur du cimetière occupe la MÊME emprise
+// XZ : deux géométries indépendantes superposées, qui z-fightaient (aplat noir
+// scintillant à l'entrée). La parade est de ne PAS mailler là — `carveParcels`
+// retire ces triangles — et de n'enfoncer que la mince bordure restante, celle
+// que le découpage sur grille ne peut pas retirer proprement. L'enfoncement
+// large de 4 m qui servait auparavant de parade creusait un cratère autour de
+// chaque cimetière : invisible tant que la caméra flottait à hauteur fixe,
+// infranchissable depuis qu'elle suit le sol.
 // Géométrie NON pré-rotée (comme le placeholder d'origine de cemetery.ts) :
 // le mesh applique sa propre `rotation.x = -Math.PI / 2`, donc ici la
 // "hauteur" se pose sur le composant Z local (cf. dérivation dans le commit).
 import * as THREE from "three";
 import { hashSeed } from "../procedural.ts";
-import { distanceToSlot, type Vec2, type WorldSlot } from "../worldLayout.ts";
+import { distanceToSlot, toLocal, type Vec2, type WorldSlot } from "../worldLayout.ts";
 import { terrainHeightAt } from "./terrain.ts";
 
 const WORLD_GROUND_SEED = hashSeed("world:ground");
@@ -22,11 +25,13 @@ const RELIEF_FACTOR = 0.5;
 const CELL_SIZE = 5; // m par maille — bien plus grossier que l'intérieur (1,5 m) : fond, pas sol arpenté
 const MAX_SEGMENTS = 96; // plafond par axe quelle que soit la taille du monde (perf)
 const ROAD_FADE_WIDTH = 8; // m — distance de fondu vers 0 aux abords de la route
-// Large : 4 m sur seulement 6 m (pente ~34°) donnait une vraie falaise, dans l'ombre
-// sous presque tous les angles — vu en jeu comme un aplat noir (bug session live-coding).
-// 24 m ⇒ pente moyenne ~9°, une dépression douce plutôt qu'un à-pic.
-const PARCEL_SINK_WIDTH = 24; // m — distance sur laquelle le sol s'enfonce à l'approche d'une parcelle
-const PARCEL_SINK_DEPTH = 4; // m — bien au-delà de l'amplitude du terrain intérieur (±2 m) : jamais coïncident
+// Bordure : seule la frange non découpée s'enfonce, juste assez pour passer
+// sous le terrain intérieur sans creuser une marche que le visiteur sentirait.
+const PARCEL_SINK_WIDTH = 3;
+const PARCEL_SINK_DEPTH = 0.6;
+/** Retrait du découpage vers l'intérieur de la parcelle (m) : le bord dentelé
+ *  du trou reste ainsi recouvert par le terrain intérieur, sans fente. */
+const PARCEL_CARVE_INSET = 2;
 
 function segmentsFor(size: number): number {
   return Math.max(1, Math.min(MAX_SEGMENTS, Math.round(size / CELL_SIZE)));
@@ -67,6 +72,41 @@ export function worldGroundHeightAt(x: number, z: number, roadPoints: readonly V
   return relief - sink;
 }
 
+/** Le point est-il dans la parcelle, rétrécie de `inset` sur chaque bord ? */
+function insideSlot(slot: WorldSlot, x: number, z: number, inset: number): boolean {
+  const local = toLocal(slot, { x, z });
+  const half = slot.plotWidth / 2 - inset;
+  return Math.abs(local.x) < half && local.z > inset && local.z < slot.plotDepth - inset;
+}
+
+/**
+ * Retire les triangles qui tombent dans l'emprise d'une parcelle : le terrain
+ * intérieur du cimetière y est déjà, et deux sols coplanaires z-fightent.
+ */
+function carveParcels(
+  geo: THREE.BufferGeometry, cx: number, cz: number, slots: readonly WorldSlot[],
+): void {
+  const index = geo.getIndex();
+  if (!index || slots.length === 0) return;
+  const pos = geo.getAttribute("position") as THREE.BufferAttribute;
+  const kept: number[] = [];
+  for (let t = 0; t < index.count; t += 3) {
+    let sumX = 0;
+    let sumY = 0;
+    for (let k = 0; k < 3; k++) {
+      const v = index.getX(t + k);
+      sumX += pos.getX(v);
+      sumY += pos.getY(v);
+    }
+    // Même dérivation locale → monde que la boucle de déplacement ci-dessous.
+    const worldX = cx + sumX / 3;
+    const worldZ = cz - sumY / 3;
+    if (slots.some((s) => insideSlot(s, worldX, worldZ, PARCEL_CARVE_INSET))) continue;
+    kept.push(index.getX(t), index.getX(t + 1), index.getX(t + 2));
+  }
+  geo.setIndex(kept);
+}
+
 /**
  * Géométrie du sol extérieur, subdivisée et déplacée en hauteur — à assigner
  * telle quelle à `cemetery.ts`'s `this.ground.geometry` (le mesh garde sa
@@ -94,6 +134,7 @@ export function buildWorldGroundGeometry(
     pos.setZ(i, worldGroundHeightAt(worldX, worldZ, roadPoints, slots));
   }
   pos.needsUpdate = true;
+  carveParcels(geo, cx, cz, slots);
   geo.computeVertexNormals();
   return geo;
 }

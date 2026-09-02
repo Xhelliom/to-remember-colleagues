@@ -20,7 +20,7 @@ import { AmbientAudio } from "./scene/ambientAudio.ts";
 import { ShadowIntegration } from "./scene/shadowIntegration.ts";
 import { pickNearestColleague, FOCUS_RADIUS } from "./scene/graveFocus.ts";
 import type { TreeLodField } from "./scene/trees/treeLod.ts";
-import { buildWorldGroundGeometry } from "./scene/worldGround.ts";
+import { buildWorldGroundGeometry, worldGroundHeightAt } from "./scene/worldGround.ts";
 import { loadDiffuseTex, loadTex } from "./scene/grass.ts";
 import { toWorld, type Vec2, type WorldSlot } from "./worldLayout.ts";
 import { AutoExposurePass } from "./scene/post/autoExposure.ts";
@@ -277,6 +277,11 @@ export class Cemetery {
     this.forestTreeLod = world.forestTreeLod;
     this.resizeGround(world.bounds, world.roadPoints, world.slots);
     this.controls.setBoundsRect(world.bounds);
+    // La caméra colle au relief : dans un cimetière c'est la tranche chargée qui
+    // fait foi, ailleurs le sol extérieur. Sans ça elle flottait à 1,70 m d'une
+    // altitude zéro que plus rien ne respecte.
+    this.controls.setGroundHeight((x, z) =>
+      this.streamer.groundHeightAt(x, z) ?? worldGroundHeightAt(x, z, world.roadPoints, world.slots));
 
     // Recul côté route : `entrance` est l'ancrage de l'ARCHE (world.ts) — y
     // apparaître mettait un pilier en pleine face (aplat noir à l'écran).
