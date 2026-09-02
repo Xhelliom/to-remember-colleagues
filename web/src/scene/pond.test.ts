@@ -46,7 +46,15 @@ describe("cemeteryPonds — placement", () => {
 
   it("laisse les petits cimetières sans étang (un mouchoir de poche n'en porte pas)", () => {
     const layout = cemeteryLayout("minuscule", 4);
+    expect(layout.plotDepth).toBeLessThan(60);
     expect(cemeteryPonds("minuscule", layout)).toEqual([]);
+  });
+
+  it("en donne un dès qu'un cimetière est assez profond, même s'il tient en une seule tranche", () => {
+    const layout = cemeteryLayout("une-tranche", 12);
+    expect(layout.chunkCount).toBe(1);
+    expect(layout.plotDepth).toBeGreaterThan(60);
+    expect(cemeteryPonds("une-tranche", layout).length).toBeGreaterThan(0);
   });
 });
 

@@ -10,6 +10,14 @@ const SPLAT_RES = 64;
 const TEX_ANISOTROPY = 8; // netteté en vue rasante (permanente en 1ère personne)
 export const PATH_HALF_WIDTH = 1.1; // m — sous GRAVE_SPACING (2.4), ne mange pas les tombes
 const PATH_FADE = 0.6; // m — largeur du dégradé terre → herbe en bord de chemin
+/** Teinte appliquée à la couche « herbe » du sol : la texture Poly Haven est un
+ *  sol de sous-bois brun, qui donnait un terrain vague sous les touffes. La
+ *  vraie couleur vient de l'ambiance (saison), celle-ci n'est qu'un repli. */
+const DEFAULT_GRASS_TINT = 0x6b7d45;
+/** Part de couleur d'herbe conservée dans les creux les plus sombres de la texture. */
+const GRASS_TINT_FLOOR = 0.55;
+/** Amplitude du grain de la texture au-dessus de ce plancher. */
+const GRASS_TINT_GRAIN = 1.1;
 
 // TextureLoader avec cache simple pour les JPG de sol.
 const texLoader = new THREE.TextureLoader();
@@ -100,6 +108,7 @@ export function buildGroundMaterial(
   pathSegments: PathSegment[],
   zStart: number,
   zEnd: number,
+  grassColor = DEFAULT_GRASS_TINT,
 ): THREE.MeshStandardMaterial {
   const repeat = Math.ceil((plotHalf * 2) / TILE_SIZE_M);
   const sv = (hashSeed(companyId) % 3) + 1; // variante neige déterministe par cimetière
@@ -131,6 +140,7 @@ export function buildGroundMaterial(
     uSplat: { value: splatTex },
     uDiff1: { value: diff1 },
     uDiff2: { value: diff2 },
+    uGrassTint: { value: new THREE.Color(grassColor) },
   };
 
   mat.onBeforeCompile = (shader) => {
@@ -152,6 +162,9 @@ export function buildGroundMaterial(
       "uniform sampler2D uSplat;",
       "uniform sampler2D uDiff1;",
       "uniform sampler2D uDiff2;",
+      "uniform vec3 uGrassTint;",
+      `#define GRASS_TINT_FLOOR ${GRASS_TINT_FLOOR.toFixed(2)}`,
+      `#define GRASS_TINT_GRAIN ${GRASS_TINT_GRAIN.toFixed(2)}`,
       shader.fragmentShader,
     ].join("\n");
     shader.fragmentShader = shader.fragmentShader.replace(
@@ -159,6 +172,12 @@ export function buildGroundMaterial(
       `#ifdef USE_MAP
   vec4 splat = texture2D(uSplat, vSplatUv);
   vec4 tex0  = texture2D(map,    vMapUv);
+  // Couche herbe : la texture Poly Haven est une litière de sous-bois BRUNE, qui
+  // donnait un terrain vague sous les touffes. On ne la teinte pas (multiplier du
+  // vert par du brun reste brun) : on garde son grain en luminance et on impose
+  // la couleur d'herbe de l'ambiance. Chemin et neige conservent la leur.
+  float _grassLum = dot(tex0.rgb, vec3(0.299, 0.587, 0.114));
+  tex0.rgb = uGrassTint * (GRASS_TINT_FLOOR + _grassLum * GRASS_TINT_GRAIN);
   vec4 tex1  = texture2D(uDiff1, vMapUv);
   vec4 tex2  = texture2D(uDiff2, vMapUv);
   diffuseColor *= mix(mix(tex0, tex1, splat.g), tex2, splat.b);

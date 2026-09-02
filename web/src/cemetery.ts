@@ -40,6 +40,7 @@ const TONE_MAPPING_EXPOSURE = 1.0;
 // historique (aucun test e2e du vrai jeu ne fait d'assertion pixel à ce jour,
 // mais on garde une échappatoire sûre).
 const POST_FX_PARAM = "post";
+const CAM_PARAM = "cam"; // pose caméra de vérification visuelle (cf. applyDebugCam)
 // Bloom sélectif (chantier 2.5) : ne fait s'embraser que les émissifs forts déjà en
 // place (halo doré des tombes bénies, lueur violacée des hantées, flammes de bougies,
 // citrouilles d'Halloween — graves.ts) — le reste de la scène ne dépasse pas le seuil.
@@ -289,10 +290,37 @@ export class Cemetery {
     const spawn = slot ? toWorld(slot, 0, -SPAWN_SETBACK) : undefined;
     const start = spawn ?? world.start;
     this.controls.placeAt(start.x, start.z);
+    // Face au cimetière où l'on débarque : sans cela on apparaissait tourné
+    // dans une direction arbitraire, souvent le long de la route, et la
+    // première image était un mur d'enceinte. `rotY` est la direction locale
+    // +Z du slot (elle s'éloigne de la route) ; la caméra regarde son -Z.
+    if (slot) {
+      this.camera.rotation.order = "YXZ";
+      this.camera.rotation.set(0, slot.rotY + Math.PI, 0);
+    }
 
+    this.applyDebugCam();
     this.weatherParticles.build(this.ambiance, PARTICLE_HALF);
     this.connectRoom(WORLD_ROOM);
-    this.streamer.update({ x: start.x, z: start.z }); // charge ce qui est déjà à portée du spawn
+    const eye = this.camera.position;
+    this.streamer.update({ x: eye.x, z: eye.z }, eye.y); // charge ce qui est déjà à portée
+  }
+
+  /**
+   * Pose caméra forcée par `?cam=x,y,z,yaw,pitch` — vérification visuelle d'un
+   * point précis du monde sans avoir à s'y rendre au clavier (le harnais
+   * `?testCluster` avait déjà ce paramètre, le monde réel non). Sans le
+   * paramètre : aucun effet. Tant que le pointeur n'est pas verrouillé, les
+   * contrôles ne touchent pas à la caméra, la pose tient donc.
+   */
+  private applyDebugCam(): void {
+    const raw = new URLSearchParams(window.location.search).get(CAM_PARAM);
+    if (!raw) return;
+    const [x, y, z, yaw, pitch] = raw.split(",").map(Number);
+    if ([x, y, z, yaw, pitch].some((n) => Number.isNaN(n))) return;
+    this.camera.position.set(x, y, z);
+    this.camera.rotation.order = "YXZ";
+    this.camera.rotation.set(pitch, yaw, 0);
   }
 
   /** Ajoute un collègue au cimetière où l'on se tient et reconstruit ses tombes. */

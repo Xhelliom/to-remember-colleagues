@@ -27,6 +27,9 @@ const POND_FLAT_MARGIN = 3;
 const POND_CANDIDATES = 16;
 /** Une tranche sur N porte un étang — au-delà, le cimetière tourne au marais. */
 const CHUNKS_PER_POND = 3;
+/** Profondeur (m) à partir de laquelle un cimetière mérite au moins un étang —
+ *  sans ce plancher, tout cimetière tenant en une seule tranche en était privé. */
+const MIN_DEPTH_FOR_POND = 60;
 const MARGIN_FROM_WALL = 3;
 
 const WATER_COLOR = 0x2c4a52;
@@ -48,7 +51,10 @@ function smoothstep(edge0: number, edge1: number, x: number): number {
  * cherché dans sa propre bande de profondeur pour qu'ils ne s'agglutinent pas.
  */
 export function cemeteryPonds(companyId: string, layout: CemeteryLayout): Pond[] {
-  const count = Math.floor(layout.chunkCount / CHUNKS_PER_POND);
+  const count = Math.max(
+    layout.plotDepth >= MIN_DEPTH_FOR_POND ? 1 : 0,
+    Math.floor(layout.chunkCount / CHUNKS_PER_POND),
+  );
   if (count === 0) return [];
   const rand = seededRandom(hashSeed(`${companyId}:ponds`));
   const halfWidth = layout.plotWidth / 2 - MARGIN_FROM_WALL;

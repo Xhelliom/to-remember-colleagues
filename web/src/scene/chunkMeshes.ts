@@ -75,7 +75,9 @@ export async function buildChunkMeshes(
   // dépasse le mur d'enceinte.
   const chunkWidth = reach * 2;
   const clustersInChunk = layout.clusters.filter((c) => c.chunk === index);
-  const mat = buildGroundMaterial(companyId, karma, ambiance.seasonKey, reach, layout.pathSegments, range.start, range.end);
+  const mat = buildGroundMaterial(
+    companyId, karma, ambiance.seasonKey, reach, layout.pathSegments, range.start, range.end, ambiance.grassColor,
+  );
   // chunkWidth = étendue du maillage (calée sur la clôture) ; layout.plotWidth =
   // largeur GLOBALE du couloir, utilisée pour le fondu de bordure afin qu'il
   // reste invariant d'un chunk à l'autre (pas de couture aux jointures).

@@ -12,7 +12,11 @@ import { addWindWeightAttribute, applyWind, GRASS_WIND_POOL, setWindTime } from 
 import { BLADE_SEGS, bladeClump, terrainNormalFromHeights } from "./grassBlade.ts";
 import { attachDepthPrepass, buildDepthTwinMaterial, isPrepassEnabled } from "./vegPrepass.ts";
 
-export const MAX_CLUMPS = 4_000; // plafond d'instances (touffes) par tranche — perf InstancedMesh
+// Plafond d'instances par tranche. À 4 000, un couloir de ~5 000 m² tombait à
+// 0,8 touffe/m² au lieu des 1,6 voulues : le sol se lisait en terrain vague.
+// Une touffe = 5 brins fusionnés, donc ~40 triangles : 12 000 tiennent dans le
+// budget d'un seul InstancedMesh (une passe de dessin par tranche).
+export const MAX_CLUMPS = 12_000;
 const CLUMP_DENSITY = 1.6;       // touffes par m² (chaque touffe fusionne plusieurs brins, cf. BLADES_PER_CLUMP)
 const BLADES_PER_CLUMP = 5;      // brins fusionnés par touffe — densité "lush" sans multiplier les draw calls
 const BORDER_MARGIN = 1.2;       // dégagement des murs latéraux et des bouts de chemin
