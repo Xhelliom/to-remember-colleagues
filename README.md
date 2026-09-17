@@ -1,5 +1,7 @@
 # ⚰️ Le Cimetière des Collègues
 
+Projet humoristique et démo technique Three.js — toutes les données sont fictives
+
 Une application web **3D** où l'on se balade à la première personne dans un
 **cimetière**. Chaque **entreprise** a son propre cimetière, et chaque **tombe**
 honore un·e collègue qui a quitté l'entreprise, accompagné·e de **sa citation**.
